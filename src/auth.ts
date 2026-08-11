@@ -165,6 +165,13 @@ export function forceHttps(req: Request, res: Response, next: NextFunction): voi
     next();
     return;
   }
+  // The platform health check reaches the container directly over HTTP, with
+  // no X-Forwarded-Proto. Redirecting it makes the deploy look unhealthy and
+  // roll back, so it is answered as-is. It exposes nothing.
+  if (req.path === '/healthz') {
+    next();
+    return;
+  }
   if (req.secure || req.get('x-forwarded-proto') === 'https') {
     next();
     return;
