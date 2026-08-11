@@ -1,0 +1,203 @@
+# Finance dashboard
+
+A single-user personal finance dashboard. Reads one Chase checking account
+through [Teller](https://teller.io), caches everything in SQLite, and renders one
+mobile-first page: the Friday allowance, available balance, upcoming charges,
+monthly commitments, spending split, and recent transactions.
+
+Node + TypeScript + Express, server-rendered HTML, vanilla JS. No React, no
+bundler, no external database.
+
+---
+
+## Build status
+
+| Step | State |
+|---|---|
+| 1. Scaffold, auth, deployable shell | **Done** |
+| 2. Teller mTLS client, Connect enrollment, sync + cron | Not started |
+| 3. Classification rules and Friday paycheck engine | Not started |
+| 4. Dashboard UI and manual overrides | Not started |
+| 5. PWA (manifest, service worker, icons) | Not started |
+| 6. Chase statement import CLI | Not started |
+| 7. Failure-mode notes | Not started |
+
+Anything below marked _(step N)_ describes setup you only need when that step
+lands.
+
+---
+
+## Requirements
+
+- Node 22 or newer (developed on 24)
+- A Teller account — free developer tier, 100 live connections
+- A Railway account — the $5 Hobby plan is enough
+- `poppler` for the statement importer _(step 6)_: `brew install poppler`
+
+---
+
+## Local setup
+
+```bash
+npm install
+npm run build
+```
+
+Create the two secrets:
+
+```bash
+npm run hash-password
+```
+
+```bash
+node dist/scripts/generate-key.js
+```
+
+Copy `.env.example` to `.env` and paste both values in. `ENCRYPTION_KEY` is
+generated **once** — rotating it makes the stored Teller token undecryptable and
+forces a bank re-link.
+
+Then:
+
+```bash
+npm start
+```
+
+The dashboard is at http://localhost:3000. Every route except `/login`,
+`/healthz` and the static assets requires a session.
+
+Useful commands:
+
+```bash
+npm run typecheck
+```
+
+```bash
+npm test
+```
+
+---
+
+## Environment variables
+
+Every variable is documented inline in [`.env.example`](.env.example). Summary:
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `NODE_ENV` | yes | `production` enables HTTPS redirects, HSTS, and the `Secure` cookie flag |
+| `PORT` | — | Railway injects this automatically |
+| `DB_PATH` | on Railway | SQLite location. Set to `/data/finance.db` with a volume mounted at `/data` |
+| `APP_TIMEZONE` | — | Defaults to `America/Chicago`. Drives pay weeks and cron times |
+| `APP_PASSWORD_HASH` | yes | argon2id hash from `npm run hash-password` |
+| `SESSION_DAYS` | — | Session cookie lifetime, default 30 |
+| `LOGIN_MAX_ATTEMPTS` | — | Login rate limit, default 5 |
+| `LOGIN_WINDOW_MINUTES` | — | Rate limit window, default 15 |
+| `ENCRYPTION_KEY` | yes | Base64 32 bytes. Encrypts the Teller token at rest |
+| `TELLER_APPLICATION_ID` | step 2 | From the Teller dashboard. Not a secret — it reaches the browser |
+| `TELLER_ENVIRONMENT` | step 2 | `sandbox`, `development`, or `production` |
+| `TELLER_CERT_B64` | step 2 | Base64 of your Teller client certificate |
+| `TELLER_KEY_B64` | step 2 | Base64 of your Teller private key |
+| `TELLER_API_BASE` | — | Defaults to `https://api.teller.io` |
+| `SYNC_ENABLED` | — | Set `false` to boot without the scheduler |
+
+A missing Teller variable does **not** stop the app booting. It disables syncing
+and says so on the dashboard, so a half-configured deploy explains itself
+instead of failing at the first API call. A missing `APP_PASSWORD_HASH` or
+`ENCRYPTION_KEY` **does** stop the boot, with the reason printed.
+
+---
+
+## Teller setup _(step 2)_
+
+Teller authenticates your **server** with a mutual-TLS client certificate, and
+authenticates the **bank connection** with an access token you get once, through
+Teller Connect. Two different things — you need both.
+
+### 1. Create the application
+
+Sign in at [teller.io](https://teller.io) and create an application. Copy the
+application ID into `TELLER_APPLICATION_ID`.
+
+Chase is supported: it appears on Teller's live institution list as `chase`,
+with the `balance` and `transactions` products this app uses. You can confirm
+that yourself at any time:
+
+```bash
+curl -s https://api.teller.io/institutions | grep -o '"name":"Chase"'
+```
+
+### 2. Generate the client certificate
+
+In the Teller dashboard, under your application's certificates, generate a new
+certificate. You get two files:
+
+- `certificate.pem` — the client certificate
+- `private_key.pem` — the private key, shown **once**
+
+Download both. Keep them out of the repo (`certs/` is gitignored).
+
+### 3. Base64-encode them for Railway
+
+Environment variables cannot hold literal newlines, so both files are stored
+base64-encoded on one line:
+
+```bash
+base64 -i certificate.pem | tr -d '\n'
+```
+
+```bash
+base64 -i private_key.pem | tr -d '\n'
+```
+
+Put the first in `TELLER_CERT_B64`, the second in `TELLER_KEY_B64`. The app
+decodes them in memory at startup and never writes them to disk.
+
+### 4. Free tier
+
+The developer tier covers 100 live connections at no cost, which is 99 more than
+this app needs. `TELLER_ENVIRONMENT=development` reaches real banks on that tier.
+`sandbox` returns fake data and needs no certificate — useful for testing.
+
+---
+
+## Railway deploy
+
+1. **Create the service.** New project → Deploy from GitHub repo → pick this
+   repo. Railway detects Node and runs `npm ci && npm run build`, then `npm start`
+   (see [`railway.json`](railway.json)).
+
+2. **Add a volume.** This is the part that is easy to miss: without it, SQLite
+   lives on ephemeral disk and every deploy wipes your transaction history.
+   In the service, go to Variables → Volumes → add one with mount path `/data`.
+
+3. **Set the variables.** At minimum `NODE_ENV=production`,
+   `DB_PATH=/data/finance.db`, `APP_PASSWORD_HASH`, and `ENCRYPTION_KEY`, plus
+   the Teller values once step 2 lands. Paste the password hash unquoted —
+   Railway's variable editor does not expand `$`.
+
+4. **Generate a domain.** Settings → Networking → Generate Domain. Railway
+   terminates TLS for you; the app trusts one proxy hop and redirects any plain
+   HTTP request to HTTPS.
+
+5. **Check the health endpoint.** `https://<your-domain>/healthz` returns `ok`.
+   Railway is configured to use it as the healthcheck path.
+
+Keep `numReplicas` at 1. SQLite on a single volume assumes one writer, and the
+sync scheduler assumes it is the only one running.
+
+---
+
+## Security notes
+
+- The Teller access token is encrypted with AES-256-GCM before it touches
+  SQLite, and is only ever read server-side. It is never rendered into a page,
+  returned by an endpoint, or logged. All Teller calls happen on the server.
+- The session cookie is `httpOnly`, `SameSite=Lax`, `Secure` in production, and
+  holds a random 256-bit token. Only the SHA-256 of that token is stored, so a
+  database leak does not hand over a live session.
+- The login route is rate limited to 5 attempts per 15 minutes per IP. A correct
+  password is also refused while the limit is active.
+- Content-Security-Policy is `default-src 'self'` with no inline scripts or
+  styles. The only external origin allowed is `cdn.teller.io`, for Teller
+  Connect.
+- `certs/`, `data/`, `.env` and `statements/` are gitignored.

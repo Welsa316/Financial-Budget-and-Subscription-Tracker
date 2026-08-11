@@ -1,0 +1,35 @@
+{
+  "name": "finance-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Single-user personal finance dashboard backed by Teller",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/src/server.js",
+    "dev": "tsc --watch --preserveWatchOutput & node --watch dist/src/server.js",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "hash-password": "node dist/scripts/hash-password.js",
+    "import-statements": "node dist/scripts/import-statements.js"
+  },
+  "dependencies": {
+    "argon2": "^0.45.1",
+    "better-sqlite3": "^13.0.3",
+    "cookie-parser": "^1.4.7",
+    "croner": "^10.0.1",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.6.2",
+    "helmet": "^8.3.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cookie-parser": "^1.4.9",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.10.1",
+    "typescript": "^7.0.2"
+  }
+}
