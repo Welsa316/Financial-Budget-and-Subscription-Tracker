@@ -53,7 +53,16 @@ COPY config ./config
 # Railway injects PORT; this is only the local default.
 EXPOSE 3000
 
-# Run unprivileged. Railway's /data volume is writable by this user.
-USER node
+# Deliberately NOT `USER node`.
+#
+# Railway mounts the volume as root:root 0755. A non-root process cannot
+# create the database inside it, so the container dies on boot with
+# SQLITE_CANTOPEN and the deploy never comes up. Verified by running this
+# image against a root-owned volume.
+#
+# Dropping privileges properly would mean an entrypoint that chowns /data and
+# then steps down with gosu. That is more machinery and more failure modes
+# than it is worth for a single-user app in an isolated container, and the
+# platform's own default builder runs as root regardless.
 
 CMD ["node", "dist/src/server.js"]
