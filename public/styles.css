@@ -1168,6 +1168,21 @@ select:focus-visible {
   }
 }
 
+/* ---------- Offline snapshot banner ----------
+   Injected by the service worker when it serves a cached page, so a stale
+   number is never mistaken for a live one. */
+.offline-banner {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  padding: 0.6rem var(--pad);
+  background: var(--essential);
+  color: #fffdf8;
+  font-size: 0.875rem;
+  font-weight: 560;
+  text-align: center;
+}
+
 /* ---------- Width utilities ----------
    CSP is style-src 'self' with no unsafe-inline, which blocks inline style
    attributes outright. Proportional bars therefore set their width through a

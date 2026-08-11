@@ -2,6 +2,26 @@
 (function () {
   'use strict';
 
+  // Offline snapshot + home-screen install. Registered after load so it never
+  // competes with the first render.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('/sw.js').catch(function () {
+        // A failed registration just means no offline copy; the app still works.
+      });
+    });
+  }
+
+  // Signing out must not leave balances sitting in the cache.
+  var logout = document.querySelector('form[action="/logout"]');
+  if (logout) {
+    logout.addEventListener('submit', function () {
+      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage('clear-cache');
+      }
+    });
+  }
+
   // Border on the sticky bar only once content scrolls under it.
   var topbar = document.querySelector('.topbar');
   if (topbar) {
