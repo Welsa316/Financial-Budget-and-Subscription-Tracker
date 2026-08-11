@@ -24,6 +24,13 @@ export interface SubscriptionRule {
    * that happen to sum to the subscription price look like one.
    */
   allowSplit?: boolean;
+  /**
+   * The day of the month this actually bills on. Set it when you know it.
+   * Without it the due date is inferred from the days previous charges landed
+   * on, which is still better than "last charge plus one month" — that drifts
+   * every time a charge posts a day late.
+   */
+  dayOfMonth?: number;
 }
 
 export interface EssentialRule {

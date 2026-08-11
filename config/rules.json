@@ -8,13 +8,11 @@
     "Precedence, highest first: manual override > exclude > essential > subscription",
     "> bill pattern > income > discretionary."
   ],
-
   "allowance": {
     "_comment": "Friday paycheck. Pay week runs Friday through Thursday, paid the following Friday.",
     "rate": 0.15,
     "weekStartsOn": "friday"
   },
-
   "incomeBaseline": {
     "_comment": "Seeds from 7 months of statements. Recomputed from real data once enough history exists.",
     "floorCents": 90300,
@@ -24,95 +22,180 @@
     "sampleWeeks": 0,
     "source": "Chase statements Dec 2025 - Jul 2026"
   },
-
   "subscriptions": [
     {
       "name": "Claude Code Max",
       "match": "anthropic",
       "amountCents": 10975,
       "cadence": "monthly",
-      "toleranceCents": 300,
+      "variableAmount": true,
+      "dayOfMonth": 1,
       "allowSplit": true,
-      "_comment": "Sometimes posts as two charges in one cycle (e.g. 21.95 + 88.30). allowSplit tests the combined total of same-merchant charges inside grouping.windowDays, so neither half is missed. Opt-in per subscription: enabling it on Amazon would let two unrelated purchases summing to $8.67 look like the membership."
+      "_comment": "Matched on merchant alone. Real charges have been 5.49, 21.95, 88.30, 91.08 and 109.75 - a fixed-amount rule missed six of nine. Billing day per Walid is the 1st."
     },
-    { "name": "Netflix", "match": "netflix", "amountCents": 4058, "cadence": "monthly", "toleranceCents": 300 },
-    { "name": "Planet Fitness", "match": "planet fitness", "amountCents": 2749, "cadence": "monthly", "toleranceCents": 200 },
-    { "name": "Chase service fee", "match": "monthly service fee", "amountCents": 1500, "cadence": "monthly", "toleranceCents": 100 },
-    { "name": "Amazon", "match": "amazon", "amountCents": 867, "cadence": "monthly", "toleranceCents": 100 },
-    { "name": "Google One", "match": "google one", "amountCents": 548, "cadence": "monthly", "toleranceCents": 100 },
+    {
+      "name": "Netflix",
+      "match": "netflix",
+      "amountCents": 4058,
+      "cadence": "monthly",
+      "variableAmount": true,
+      "dayOfMonth": 26,
+      "_comment": "Real charges: 19.74, 27.43, 37.30, 40.58 as the plan changed. Amount is not a reliable signal."
+    },
+    {
+      "name": "Planet Fitness",
+      "match": "planet fitness",
+      "amountCents": 2749,
+      "cadence": "monthly",
+      "variableAmount": true,
+      "dayOfMonth": 17,
+      "_comment": "Real charges include a 4.39 fee and a 53.78 double month."
+    },
+    {
+      "name": "Chase service fee",
+      "match": "monthly service fee",
+      "amountCents": 1500,
+      "cadence": "monthly",
+      "variableAmount": true,
+      "dayOfMonth": 15
+    },
+    {
+      "name": "Amazon Prime",
+      "match": "amazon prime",
+      "amountCents": 822,
+      "cadence": "monthly",
+      "variableAmount": true,
+      "dayOfMonth": 1,
+      "_comment": "Matches 'amazon prime' specifically, never bare 'amazon' - ordinary Amazon shopping must stay discretionary. Real charge is 8.22, not 8.67."
+    },
+    {
+      "name": "Google One",
+      "match": "google one",
+      "amountCents": 548,
+      "cadence": "monthly",
+      "variableAmount": true
+    },
     {
       "name": "Railway Hobby",
       "match": "railway",
       "amountCents": 500,
       "cadence": "monthly",
       "variableAmount": true,
-      "_comment": "$5 base plus usage, so the amount is not checked - any Railway charge counts."
+      "_comment": "Base plus usage: 5.00, 7.56, 7.91."
     },
-    { "name": "Google Workspace", "match": "workspace", "amountCents": 297, "cadence": "monthly", "toleranceCents": 100 },
-    { "name": "Google *Niagara", "match": "niagara", "amountCents": 1535, "cadence": "yearly", "toleranceCents": 200 }
+    {
+      "name": "Google Workspace",
+      "match": "workspace",
+      "amountCents": 297,
+      "cadence": "monthly",
+      "variableAmount": true,
+      "_comment": "NOT SEEN in seven months of statements. Left in place in case it bills elsewhere; it will read 'never seen'."
+    },
+    {
+      "name": "Google *Niagara",
+      "match": "niagara",
+      "amountCents": 1535,
+      "cadence": "yearly",
+      "variableAmount": true,
+      "_comment": "Real charge 2026-07-08. Distinct from the Microsoft Store charge that is also 15.35."
+    },
+    {
+      "name": "Apple",
+      "match": "apple.com",
+      "amountCents": 99,
+      "cadence": "monthly",
+      "variableAmount": true,
+      "_comment": "Recurring 0.99 found in the statements but never mentioned - added so it stops landing in discretionary. Delete this entry if it is not yours."
+    }
   ],
-
   "essentials": [
     {
       "name": "Car insurance + phone",
       "amountCents": 16500,
-      "match": { "all": ["zelle", "dad"] },
+      "match": {
+        "all": [
+          "zelle",
+          "to dad"
+        ]
+      },
       "direction": "out",
-      "minAbsAmountCents": 10000,
-      "_comment": "No fixed billing date. Identified as a Zelle to Dad over $100."
+      "_comment": "Every Zelle to Dad is this commitment regardless of amount (confirmed 2026-08-11). Real amounts have ranged $16.64 to $365."
     },
     {
       "name": "Debt repayment",
       "amountCents": 28000,
-      "match": { "all": ["zelle", "walid elsayed"] },
+      "match": {
+        "all": [
+          "zelle",
+          "to walid"
+        ]
+      },
       "direction": "out",
       "exactAmountCents": 28000,
       "nominalDayOfMonth": 17,
-      "_comment": "Zelle to myself of exactly $280.00. Nominally due the 17th, but the date moves."
+      "_comment": "Statements say 'Zelle Payment To Walid <ref>' with NO surname. The old rule looked for 'walid elsayed' and therefore never matched a single one of the five real $280 payments."
     },
     {
       "name": "Fiqh class (Daris)",
       "amountCents": 4000,
-      "match": { "any": ["wise inc", "wise transfer", "wise us"] },
+      "match": {
+        "any": [
+          "wise inc",
+          "wise trnwise",
+          "wise us"
+        ]
+      },
       "direction": "out",
-      "_comment": "Any Wise transfer."
+      "_comment": "Any Wise transfer. Real amounts vary: 40, 41, 59, 88.50, 99."
     }
   ],
-
   "billPatterns": {
-    "_comment": "Outgoing charges that count as bills rather than discretionary spending.",
-    "patterns": ["exxon", "affirm", "insurance"]
+    "_comment": "Outgoing charges that count as bills rather than discretionary. Klarna/Zip are buy-now-pay-later, same idea as Affirm.",
+    "patterns": [
+      "exxon",
+      "affirm",
+      "insurance",
+      "klarna",
+      "zip ",
+      "afterpay"
+    ]
   },
-
   "neverSubscription": {
     "_comment": "Recurring-looking charges that must never be reported as subscriptions. They still count as discretionary spending.",
-    "patterns": ["cleanup.pictures", "cleanup pictures", "lexinter", "playstation", "game pass", "dave membership"]
+    "patterns": [
+      "cleanup.pictures",
+      "cleanup pictures",
+      "lexinter",
+      "playstation",
+      "game pass",
+      "dave membership"
+    ]
   },
-
   "exclude": {
     "_comment": [
-      "Neither income nor spending. Dave advances and repayments net to zero and would",
-      "otherwise inflate both sides. Credit card payments and self-transfers are money",
-      "moving, not money earned or spent.",
-      "VERIFY against real statement text once statements are imported: the exact wording",
-      "Chase uses for Dave and for card payments has not been confirmed yet."
+      "Neither income nor spending.",
+      "Outgoing Zelles to yourself are either the $280 debt repayment or money moved",
+      "for the Friday paycheck (confirmed 2026-08-11), so they are excluded here.",
+      "Essentials are matched BEFORE exclusions, which is what lets the $280 debt",
+      "repayment still register while every other self-payment is ignored."
     ],
     "patterns": [
       "dave inc",
-      "dave advance",
+      "dave web",
+      "dave.com",
+      "payment to chase",
       "chase credit crd",
-      "chase credit card",
       "credit crd epay",
-      "payment to chase card",
+      "chase card ending",
       "online transfer to chk",
       "online transfer to sav",
       "online transfer from chk",
       "online transfer from sav",
-      "walid elsayed",
+      "zelle payment to walid",
+      "zelle payment from walid elsayed",
       "cash redemption"
     ]
   },
-
   "income": {
     "_comment": [
       "Applies to positive amounts only. exclude wins over include.",
@@ -143,12 +226,10 @@
       "reversal"
     ]
   },
-
   "grouping": {
     "_comment": "Charges from the same merchant within this many days read as one payment, not several subscriptions.",
     "windowDays": 3
   },
-
   "refunds": {
     "_comment": [
       "A credit that is not income nets against discretionary spending instead of",
