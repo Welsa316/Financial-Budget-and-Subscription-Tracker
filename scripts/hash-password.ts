@@ -8,6 +8,18 @@
  */
 import { hashPassword } from '../src/auth.js';
 
+/**
+ * Built from character codes on purpose. Written as literal control
+ * characters these are invisible in an editor and are silently stripped by
+ * tooling - which previously left backspace appending a DEL byte to the
+ * password instead of deleting, producing a hash for a password that could
+ * never be typed again.
+ */
+const CTRL_C = String.fromCharCode(3);
+const CTRL_D = String.fromCharCode(4);
+const BACKSPACE = String.fromCharCode(8);
+const DELETE = String.fromCharCode(127);
+
 function prompt(question: string): Promise<string> {
   return new Promise((resolvePrompt, rejectPrompt) => {
     const { stdin, stdout } = process;
@@ -20,33 +32,36 @@ function prompt(question: string): Promise<string> {
 
     let value = '';
 
-    const onData = (chunk: string): void => {
-      for (const char of chunk) {
-        if (char === '\n' || char === '\r' || char === '') {
-          cleanup();
-          stdout.write('\n');
-          resolvePrompt(value);
-          return;
-        }
-        if (char === '') {
-          cleanup();
-          stdout.write('\n');
-          rejectPrompt(new Error('Cancelled'));
-          return;
-        }
-        if (char === '' || char === '\b') {
-          value = value.slice(0, -1);
-          continue;
-        }
-        value += char;
-      }
-    };
-
     const cleanup = (): void => {
       stdin.off('data', onData);
       if (isTTY) stdin.setRawMode(false);
       stdin.pause();
     };
+
+    function onData(chunk: string): void {
+      for (const char of chunk) {
+        if (char === '\r' || char === '\n' || char === CTRL_D) {
+          cleanup();
+          stdout.write('\n');
+          resolvePrompt(value);
+          return;
+        }
+        if (char === CTRL_C) {
+          cleanup();
+          stdout.write('\n');
+          rejectPrompt(new Error('Cancelled'));
+          return;
+        }
+        if (char === BACKSPACE || char === DELETE) {
+          value = value.slice(0, -1);
+          continue;
+        }
+        // Arrow keys and the like arrive as escape sequences; dropping them
+        // beats burying invisible bytes in the password.
+        if (char < ' ') continue;
+        value += char;
+      }
+    }
 
     stdin.on('data', onData);
   });
@@ -67,8 +82,8 @@ async function main(): Promise<void> {
   const hash = await hashPassword(password);
   console.log('\nSet this in Railway (and your local .env):\n');
   console.log(`APP_PASSWORD_HASH=${hash}\n`);
-  console.log('The hash contains $ characters. In a .env file leave it unquoted;');
-  console.log('in a shell, single-quote it so $ is not expanded.\n');
+  console.log('Paste it exactly as shown. It contains $ characters:');
+  console.log("leave it unquoted in Railway and in .env; single-quote it in a shell.\n");
 }
 
 main().catch((error: unknown) => {
