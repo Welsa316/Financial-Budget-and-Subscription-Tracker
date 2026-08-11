@@ -19,14 +19,8 @@ import {
 } from './enrollment.js';
 import { SimpleFinError, claimSetupToken } from './simplefin.js';
 import { isSyncRunning, nextScheduledRun, runSync } from './sync.js';
-import {
-  connectPage,
-  dashboardPage,
-  errorPage,
-  loginPage,
-  type AccountRow,
-  type TransactionRow,
-} from './views.js';
+import { connectPage, dashboardPage, errorPage, loginPage, type AccountRow } from './views.js';
+import { buildDashboard } from './dashboard.js';
 
 export const router = Router();
 
@@ -173,58 +167,76 @@ router.get('/api/sync-status', (_req: Request, res: Response) => {
 
 // --- Dashboard ------------------------------------------------------------
 
+const OVERRIDE_VALUES = new Set(['bill', 'discretionary', 'income', 'ignore']);
+
+/**
+ * Manual reclassification. Stored in its own table so a re-sync overwriting the
+ * transaction row can never discard it.
+ */
+router.post('/override', (req: Request, res: Response) => {
+  const id = typeof req.body?.id === 'string' ? req.body.id : '';
+  const classification = typeof req.body?.classification === 'string' ? req.body.classification : '';
+
+  if (!id) {
+    res.status(400).type('html').send(errorPage(400, 'No transaction specified.'));
+    return;
+  }
+
+  const db = getDb();
+  const exists = db.prepare('SELECT 1 FROM transactions WHERE id = ?').get(id);
+  if (!exists) {
+    res.status(404).type('html').send(errorPage(404, 'That transaction no longer exists.'));
+    return;
+  }
+
+  if (classification === 'clear') {
+    db.prepare('DELETE FROM overrides WHERE transaction_id = ?').run(id);
+  } else if (OVERRIDE_VALUES.has(classification)) {
+    db.prepare(
+      `INSERT INTO overrides (transaction_id, classification, created_at) VALUES (?, ?, ?)
+       ON CONFLICT (transaction_id) DO UPDATE SET
+         classification = excluded.classification, created_at = excluded.created_at`,
+    ).run(id, classification, new Date().toISOString());
+  } else {
+    res.status(400).type('html').send(errorPage(400, 'Unknown classification.'));
+    return;
+  }
+
+  // Back to the row that was just changed.
+  res.redirect(`/#txn-${encodeURIComponent(id)}`);
+});
+
 router.get('/', (_req: Request, res: Response) => {
   const db = getDb();
 
   const accounts = db
     .prepare(
-      `SELECT id, name, institution, last_four, available_cents, ledger_cents, balance_updated_at
+      `SELECT id, name, institution, available_cents, ledger_cents
        FROM accounts ORDER BY name`,
     )
     .all() as AccountRow[];
 
   const lastSync = db
     .prepare(
-      `SELECT finished_at, status, error, trigger FROM sync_log
+      `SELECT finished_at, status, error FROM sync_log
        WHERE status != 'running' ORDER BY started_at DESC LIMIT 1`,
     )
-    .get() as
-    | { finished_at: string | null; status: string; error: string | null; trigger: string }
-    | undefined;
-
-  const transactionCount = (
-    db.prepare('SELECT COUNT(*) AS n FROM transactions').get() as { n: number }
-  ).n;
-  const pendingCount = (
-    db.prepare(`SELECT COUNT(*) AS n FROM transactions WHERE status = 'pending'`).get() as {
-      n: number;
-    }
-  ).n;
-
-  const recentTransactions = db
-    .prepare(
-      `SELECT id, date, amount_cents, description, status, merchant
-       FROM transactions ORDER BY date DESC, rowid DESC LIMIT 15`,
-    )
-    .all() as TransactionRow[];
+    .get() as { finished_at: string | null; status: string; error: string | null } | undefined;
 
   const nextRun = nextScheduledRun();
+  const connected = isBankConnected();
   const syncStale =
-    !lastSync?.finished_at ||
-    Date.now() - Date.parse(lastSync.finished_at) > STALE_AFTER_MS;
+    !lastSync?.finished_at || Date.now() - Date.parse(lastSync.finished_at) > STALE_AFTER_MS;
 
   res.type('html').send(
     dashboardPage({
+      ...buildDashboard(),
       accounts,
       lastSync: lastSync ?? null,
-      bankConnected: isBankConnected(),
+      bankConnected: connected,
       disconnection: getDisconnection(),
-      problems: validateConfig(),
-      transactionCount,
-      pendingCount,
-      recentTransactions,
       nextScheduled: nextRun ? nextRun.toISOString() : null,
-      syncStale: isBankConnected() ? syncStale : false,
+      syncStale: connected ? syncStale : false,
     }),
   );
 });

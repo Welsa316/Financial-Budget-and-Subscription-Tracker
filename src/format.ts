@@ -38,11 +38,21 @@ export function esc(value: unknown): string {
     .replace(/'/g, '&#39;');
 }
 
-/** Title-cases a bank description for display without destroying known acronyms. */
+/**
+ * Acronyms worth preserving in bank descriptions. Uppercasing every short word
+ * instead turns "Cafe du Monde" into "Cafe DU Monde".
+ */
+const ACRONYMS = new Set([
+  'atm', 'llc', 'inc', 'usa', 'us', 'ach', 'pos', 'tv', 'ny', 'la', 'dc', 'id', 'rtp', 'ppd',
+]);
+
 export function titleCase(input: string): string {
   return input
     .toLowerCase()
     .split(/\s+/)
-    .map((word) => (word.length <= 2 ? word.toUpperCase() : word[0]!.toUpperCase() + word.slice(1)))
+    .filter(Boolean)
+    .map((word) =>
+      ACRONYMS.has(word) ? word.toUpperCase() : word[0]!.toUpperCase() + word.slice(1),
+    )
     .join(' ');
 }
