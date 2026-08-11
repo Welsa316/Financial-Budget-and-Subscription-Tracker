@@ -94,6 +94,54 @@ const MIGRATIONS: Array<{ version: number; up: string }> = [
       CREATE INDEX idx_sessions_expires ON sessions (expires_at);
     `,
   },
+  {
+    // Teller withdrew their API in July 2026, so the provider is SimpleFIN.
+    // SQLite cannot alter a CHECK constraint in place; the table has to be
+    // rebuilt. Any teller-sourced rows are stale fixtures whose ids can never
+    // reconcile against SimpleFIN data, so they go.
+    version: 2,
+    up: `
+      CREATE TABLE transactions_v2 (
+        id                      TEXT PRIMARY KEY,
+        account_id              TEXT NOT NULL,
+        date                    TEXT NOT NULL,
+        amount_cents            INTEGER NOT NULL,
+        description             TEXT NOT NULL,
+        normalized_description  TEXT NOT NULL,
+        merchant                TEXT,
+        status                  TEXT NOT NULL CHECK (status IN ('pending','posted')),
+        source                  TEXT NOT NULL CHECK (source IN ('simplefin','import')),
+        teller_type             TEXT,
+        teller_category         TEXT,
+        dedupe_key              TEXT NOT NULL,
+        settled_from            TEXT,
+        raw                     TEXT,
+        first_seen_at           TEXT NOT NULL,
+        updated_at              TEXT NOT NULL
+      );
+
+      INSERT INTO transactions_v2
+        SELECT id, account_id, date, amount_cents, description, normalized_description,
+               merchant, status, source, teller_type, teller_category, dedupe_key,
+               settled_from, raw, first_seen_at, updated_at
+        FROM transactions
+        WHERE source = 'import';
+
+      DELETE FROM overrides
+        WHERE transaction_id NOT IN (SELECT id FROM transactions_v2);
+
+      DROP TABLE transactions;
+      ALTER TABLE transactions_v2 RENAME TO transactions;
+
+      CREATE INDEX idx_transactions_date ON transactions (date DESC);
+      CREATE INDEX idx_transactions_dedupe ON transactions (dedupe_key);
+      CREATE INDEX idx_transactions_status ON transactions (status);
+      CREATE INDEX idx_transactions_account ON transactions (account_id);
+
+      DELETE FROM accounts;
+      DELETE FROM settings WHERE key LIKE 'teller_%';
+    `,
+  },
 ];
 
 function migrate(db: DB): void {

@@ -1,103 +1,77 @@
-import { randomBytes } from 'node:crypto';
 import { deleteSetting, getSetting, setSetting } from './db.js';
-import { decrypt, encrypt, safeEqual } from './crypto.js';
+import { decrypt, encrypt } from './crypto.js';
 
 /**
- * Storage for the Teller enrollment. The access token is a bearer credential to
- * the entire account history, so it lives here encrypted and is only ever read
- * server-side — it must never be rendered into a page or returned by an API.
+ * Storage for the SimpleFIN connection.
+ *
+ * The access URL carries HTTP Basic credentials for the whole account history,
+ * so it lives here encrypted and is only ever read server-side. It must never
+ * be rendered into a page, returned by an endpoint, or logged.
  */
 
-const TOKEN_KEY = 'teller_access_token';
-const ENROLLMENT_KEY = 'teller_enrollment_id';
-const USER_KEY = 'teller_user_id';
-const DISCONNECTED_KEY = 'teller_disconnected_at';
+const ACCESS_URL_KEY = 'simplefin_access_url';
+const CONNECTED_AT_KEY = 'simplefin_connected_at';
+const DISCONNECTED_KEY = 'simplefin_disconnected_at';
+const DISCONNECT_REASON_KEY = 'simplefin_disconnect_reason';
+const DISCONNECT_KIND_KEY = 'simplefin_disconnect_kind';
 
-export interface Enrollment {
-  accessToken: string;
-  enrollmentId: string | null;
-  userId: string | null;
+export type DisconnectKind = 'reconnect' | 'payment_required';
+
+export function saveAccessUrl(accessUrl: string): void {
+  setSetting(ACCESS_URL_KEY, encrypt(accessUrl));
+  setSetting(CONNECTED_AT_KEY, new Date().toISOString());
+  clearDisconnection();
 }
 
-export function saveEnrollment(params: {
-  accessToken: string;
-  enrollmentId?: string | null;
-  userId?: string | null;
-}): void {
-  setSetting(TOKEN_KEY, encrypt(params.accessToken));
-  if (params.enrollmentId) setSetting(ENROLLMENT_KEY, params.enrollmentId);
-  if (params.userId) setSetting(USER_KEY, params.userId);
-  deleteSetting(DISCONNECTED_KEY);
-}
-
-export function getEnrollment(): Enrollment | null {
-  const stored = getSetting(TOKEN_KEY);
+export function getAccessUrl(): string | null {
+  const stored = getSetting(ACCESS_URL_KEY);
   if (!stored) return null;
   try {
-    return {
-      accessToken: decrypt(stored),
-      enrollmentId: getSetting(ENROLLMENT_KEY),
-      userId: getSetting(USER_KEY),
-    };
+    return decrypt(stored);
   } catch {
-    // Wrong or rotated ENCRYPTION_KEY: treat as disconnected rather than
-    // crashing, so the UI can tell you to re-link instead of 500ing.
+    // Wrong or rotated ENCRYPTION_KEY. Treat as disconnected so the UI can say
+    // "reconnect" rather than throwing on every page load.
     return null;
   }
 }
 
 export function isBankConnected(): boolean {
-  return getSetting(TOKEN_KEY) !== null;
+  return getSetting(ACCESS_URL_KEY) !== null;
+}
+
+export function connectedAt(): string | null {
+  return getSetting(CONNECTED_AT_KEY);
 }
 
 /**
- * Marks the connection as broken without deleting the token, so the dashboard
- * can show a "reconnect your bank" state instead of silently serving stale
- * numbers as if they were current.
+ * Records that syncing is broken without deleting the credential, so the
+ * dashboard can show a clear banner instead of silently serving stale numbers
+ * as if they were current.
  */
-export function markDisconnected(reason: string): void {
+export function markDisconnected(reason: string, kind: DisconnectKind = 'reconnect'): void {
   setSetting(DISCONNECTED_KEY, new Date().toISOString());
-  setSetting('teller_disconnect_reason', reason);
+  setSetting(DISCONNECT_REASON_KEY, reason);
+  setSetting(DISCONNECT_KIND_KEY, kind);
 }
 
-export function getDisconnection(): { at: string; reason: string } | null {
+export function getDisconnection(): { at: string; reason: string; kind: DisconnectKind } | null {
   const at = getSetting(DISCONNECTED_KEY);
   if (!at) return null;
-  return { at, reason: getSetting('teller_disconnect_reason') ?? 'Unknown' };
+  return {
+    at,
+    reason: getSetting(DISCONNECT_REASON_KEY) ?? 'Unknown',
+    kind: (getSetting(DISCONNECT_KIND_KEY) as DisconnectKind) ?? 'reconnect',
+  };
 }
 
-const NONCE_KEY = 'teller_connect_nonce';
-const NONCE_TTL_MS = 15 * 60 * 1000;
-
-/**
- * Teller Connect accepts a server-generated nonce. Requiring it back on the
- * enrollment callback means a token captured elsewhere cannot be replayed into
- * this app's storage.
- */
-export function createConnectNonce(): string {
-  const nonce = randomBytes(24).toString('base64url');
-  setSetting(NONCE_KEY, JSON.stringify({ nonce, createdAt: Date.now() }));
-  return nonce;
-}
-
-export function consumeConnectNonce(candidate: unknown): boolean {
-  const stored = getSetting(NONCE_KEY);
-  if (!stored || typeof candidate !== 'string' || candidate.length === 0) return false;
-  deleteSetting(NONCE_KEY); // single use, whatever the outcome
-
-  try {
-    const { nonce, createdAt } = JSON.parse(stored) as { nonce: string; createdAt: number };
-    if (Date.now() - createdAt > NONCE_TTL_MS) return false;
-    return safeEqual(nonce, candidate);
-  } catch {
-    return false;
-  }
-}
-
-export function clearEnrollment(): void {
-  deleteSetting(TOKEN_KEY);
-  deleteSetting(ENROLLMENT_KEY);
-  deleteSetting(USER_KEY);
+export function clearDisconnection(): void {
   deleteSetting(DISCONNECTED_KEY);
-  deleteSetting('teller_disconnect_reason');
+  deleteSetting(DISCONNECT_REASON_KEY);
+  deleteSetting(DISCONNECT_KIND_KEY);
+}
+
+export function clearConnection(): void {
+  deleteSetting(ACCESS_URL_KEY);
+  deleteSetting(CONNECTED_AT_KEY);
+  clearDisconnection();
 }

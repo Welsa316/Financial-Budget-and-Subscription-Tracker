@@ -8,7 +8,6 @@ import { forceHttps, purgeExpiredSessions, requireAuth, sameOriginOnly } from '.
 import { router } from './routes.js';
 import { startScheduler, stopScheduler } from './sync.js';
 import { errorPage } from './views.js';
-import { tellerConfigured } from './config.js';
 
 function boot(): void {
   const problems = validateConfig();
@@ -42,13 +41,15 @@ function boot(): void {
   app.use(
     helmet({
       contentSecurityPolicy: {
+        // SimpleFIN needs no browser SDK — the setup token is claimed
+        // server-side — so nothing outside this origin is allowed to load.
         directives: {
           defaultSrc: ["'self'"],
-          scriptSrc: ["'self'", 'https://cdn.teller.io'],
+          scriptSrc: ["'self'"],
           styleSrc: ["'self'"],
           imgSrc: ["'self'", 'data:'],
           connectSrc: ["'self'"],
-          frameSrc: ["'self'", 'https://teller.io', 'https://*.teller.io'],
+          frameSrc: ["'none'"],
           fontSrc: ["'self'"],
           objectSrc: ["'none'"],
           baseUri: ["'self'"],
@@ -109,11 +110,7 @@ function boot(): void {
   const server = app.listen(config.port, () => {
     console.log(`[web] listening on :${config.port} (${config.nodeEnv})`);
     console.log(`[web] timezone ${config.timezone}`);
-    if (tellerConfigured()) {
-      startScheduler();
-    } else {
-      console.log('[sync] scheduler not started — Teller credentials missing');
-    }
+    startScheduler();
   });
 
   // Without this a bind failure is an unhandled 'error' event that kills the

@@ -320,19 +320,57 @@ a {
   margin-top: 0.5rem;
 }
 
-.connect__status {
-  min-height: 1.25rem;
-  margin: 1rem 0 0.25rem;
+.connect__note {
+  margin-top: 1rem;
+  padding: 0.7rem 0.85rem;
+  background: var(--surface-sunk);
+  border-radius: var(--radius-sm);
   font-size: 0.9375rem;
   color: var(--ink-2);
 }
 
-.connect__status--error {
-  color: var(--negative);
+.steps {
+  counter-reset: step;
+  list-style: none;
+  margin: 1.25rem 0 0.5rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
 }
 
-.connect__status--ok {
-  color: var(--positive);
+.steps li {
+  counter-increment: step;
+  position: relative;
+  padding-left: 2rem;
+  font-size: 0.9375rem;
+  color: var(--ink-2);
+}
+
+.steps li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 0.05rem;
+  width: 1.4rem;
+  height: 1.4rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--surface);
+  font-size: 0.75rem;
+  font-weight: 640;
+  font-variant-numeric: tabular-nums;
+}
+
+.auth__input--area {
+  min-height: 6rem;
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  word-break: break-all;
 }
 
 /* ---------- Stats / definition rows ---------- */

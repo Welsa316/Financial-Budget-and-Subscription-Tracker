@@ -10,16 +10,14 @@ import {
   verifyPassword,
 } from './auth.js';
 import { getDb } from './db.js';
-import { config, tellerConfigured, validateConfig } from './config.js';
+import { config, validateConfig } from './config.js';
 import {
-  clearEnrollment,
-  consumeConnectNonce,
-  createConnectNonce,
+  clearConnection,
   getDisconnection,
-  getEnrollment,
   isBankConnected,
-  saveEnrollment,
+  saveAccessUrl,
 } from './enrollment.js';
+import { SimpleFinError, claimSetupToken } from './simplefin.js';
 import { isSyncRunning, nextScheduledRun, runSync } from './sync.js';
 import {
   connectPage,
@@ -78,67 +76,64 @@ router.post('/logout', (req: Request, res: Response) => {
   res.redirect('/login');
 });
 
-// --- Bank enrollment ------------------------------------------------------
+// --- SimpleFIN connection -------------------------------------------------
 
 router.get('/connect', (_req: Request, res: Response) => {
-  if (!tellerConfigured()) {
-    res
-      .status(503)
-      .type('html')
-      .send(
-        errorPage(
-          503,
-          'Teller is not configured yet. Set TELLER_APPLICATION_ID, TELLER_CERT_B64 and TELLER_KEY_B64.',
-        ),
-      );
-    return;
-  }
-
-  const existing = getEnrollment();
   res.type('html').send(
     connectPage({
-      applicationId: config.teller.applicationId,
-      environment: config.teller.environment,
-      nonce: createConnectNonce(),
-      // Repairing keeps the same enrollment and skips the institution picker.
-      enrollmentId: existing?.enrollmentId ?? null,
-      institution: existing ? null : 'chase',
+      bridgeUrl: config.simplefin.bridgeUrl,
+      alreadyConnected: isBankConnected(),
     }),
   );
 });
 
-router.post('/api/enrollment', (req: Request, res: Response) => {
-  const body = req.body as {
-    nonce?: unknown;
-    accessToken?: unknown;
-    enrollment?: { id?: unknown };
-    user?: { id?: unknown };
+/**
+ * Claims a setup token server-side and stores the resulting access URL
+ * encrypted. The token arrives in a form POST and is never echoed back into
+ * the page, logged, or persisted in its raw form.
+ */
+router.post('/connect', async (req: Request, res: Response) => {
+  const setupToken = typeof req.body?.setupToken === 'string' ? req.body.setupToken.trim() : '';
+
+  const fail = (message: string, status = 400): void => {
+    res.status(status).type('html').send(
+      connectPage({
+        bridgeUrl: config.simplefin.bridgeUrl,
+        alreadyConnected: isBankConnected(),
+        error: message,
+      }),
+    );
   };
 
-  if (!consumeConnectNonce(body?.nonce)) {
-    res.status(400).json({ error: 'Enrollment session expired. Start again.' });
-    return;
-  }
-  if (typeof body?.accessToken !== 'string' || body.accessToken.length < 8) {
-    res.status(400).json({ error: 'No access token in the enrollment payload.' });
+  if (!setupToken) {
+    fail('Paste the setup token from SimpleFIN Bridge.');
     return;
   }
 
-  saveEnrollment({
-    accessToken: body.accessToken,
-    enrollmentId: typeof body.enrollment?.id === 'string' ? body.enrollment.id : null,
-    userId: typeof body.user?.id === 'string' ? body.user.id : null,
-  });
+  try {
+    const accessUrl = await claimSetupToken(setupToken);
+    saveAccessUrl(accessUrl);
+  } catch (error) {
+    // A transient failure is ours to report generically; anything else is a
+    // problem with the token itself and gets the specific message.
+    const transient = !(error instanceof SimpleFinError) || error.failure === 'transient';
+    fail(
+      transient
+        ? 'Could not reach SimpleFIN. Check your connection and try again.'
+        : (error as SimpleFinError).message,
+      transient ? 502 : 400,
+    );
+    return;
+  }
 
-  // First sync pulls whatever history the institution exposes; it can take a
-  // while, so it runs in the background and the page polls for status.
+  // The first sync backfills history and can take a while, so it runs in the
+  // background while the dashboard polls for status.
   void runSync('manual');
-
-  res.json({ ok: true });
+  res.redirect('/');
 });
 
 router.post('/api/disconnect', (_req: Request, res: Response) => {
-  clearEnrollment();
+  clearConnection();
   res.json({ ok: true });
 });
 

@@ -1,34 +1,40 @@
 import { Cron } from 'croner';
 import { config } from './config.js';
 import { getDb } from './db.js';
-import { getEnrollment, markDisconnected } from './enrollment.js';
+import { getAccessUrl, markDisconnected, clearDisconnection } from './enrollment.js';
 import { dedupeKey, descriptionsSimilar, normalizeDescription, toCents } from './normalize.js';
-import { addDays } from './time.js';
+import { addDays, toYmd } from './time.js';
 import {
-  TellerError,
-  getBalances,
-  listAccounts,
-  listTransactions,
-  type TellerTransaction,
-} from './teller.js';
+  SimpleFinError,
+  collectErrors,
+  fetchAccounts,
+  indicatesReconnect,
+  type SimpleFinAccount,
+  type SimpleFinTransaction,
+} from './simplefin.js';
 
 export interface SyncResult {
   status: 'ok' | 'error' | 'skipped';
   accountsSynced: number;
   transactionsUpserted: number;
   pendingSettled: number;
+  /** Problems SimpleFIN reported alongside an otherwise successful response. */
+  warnings: string[];
   error?: string;
 }
 
 export type SyncTrigger = 'cron' | 'manual' | 'startup';
 
-const PAGE_SIZE = 250;
-/** Enough pages to pull whatever history the institution exposes on first run. */
-const MAX_PAGES_BACKFILL = 40;
-/** On a twice-daily sync, two pages is far more than a day of activity. */
-const MAX_PAGES_INCREMENTAL = 2;
+/** SimpleFIN caps any single request to a 90-day range. */
+const WINDOW_DAYS = 90;
+/** First sync walks back a year in 90-day windows; four requests, well inside the daily quota. */
+const BACKFILL_WINDOWS = 4;
+/** Routine syncs only need enough range to cover settlement and late posting. */
+const INCREMENTAL_DAYS = 45;
 /** How far a pending charge may move when it settles. */
 const SETTLE_WINDOW_DAYS = 5;
+
+const DAY_SECONDS = 86_400;
 
 let running = false;
 let scheduler: Cron | null = null;
@@ -51,34 +57,85 @@ function daysApart(a: string, b: string): number {
   );
 }
 
-async function fetchTransactionsFor(
-  accessToken: string,
-  accountId: string,
-  fullBackfill: boolean,
-): Promise<TellerTransaction[]> {
-  const collected: TellerTransaction[] = [];
-  const maxPages = fullBackfill ? MAX_PAGES_BACKFILL : MAX_PAGES_INCREMENTAL;
-  let fromId: string | undefined;
+/**
+ * SimpleFIN transaction ids are only unique within an account, so they are
+ * namespaced before becoming primary keys. Deterministic, so a re-sync lands on
+ * the same row and manual overrides survive.
+ */
+function rowId(accountId: string, transactionId: string): string {
+  return `sf_${accountId}_${transactionId}`;
+}
 
-  for (let page = 0; page < maxPages; page++) {
-    const batch = await listTransactions(accessToken, accountId, {
-      count: PAGE_SIZE,
-      fromId,
-    });
-    if (batch.length === 0) break;
-    collected.push(...batch);
-    if (batch.length < PAGE_SIZE) break;
-    // from_id pages backward, so continue from the oldest row of this batch.
-    fromId = batch[batch.length - 1]!.id;
+/**
+ * A pending transaction may carry posted = 0, which would otherwise land the
+ * charge in 1970. The date is resolved in the configured zone, not UTC, because
+ * a late-evening charge belongs to that day's pay week locally.
+ */
+function transactionDate(transaction: SimpleFinTransaction): string {
+  const seconds =
+    transaction.posted && transaction.posted > 0
+      ? transaction.posted
+      : (transaction.transacted_at ?? Math.floor(Date.now() / 1000));
+  return toYmd(new Date(seconds * 1000));
+}
+
+function isPending(transaction: SimpleFinTransaction): boolean {
+  return transaction.pending === true || !transaction.posted || transaction.posted === 0;
+}
+
+interface FetchOutcome {
+  accounts: SimpleFinAccount[];
+  warnings: string[];
+}
+
+/**
+ * Pulls accounts and transactions, paging over 90-day windows on a first sync.
+ * Window 0 is the most recent, so its balances are the ones kept.
+ */
+async function fetchEverything(accessUrl: string, fullBackfill: boolean): Promise<FetchOutcome> {
+  const now = Math.floor(Date.now() / 1000);
+  const windows: Array<{ startDate: number; endDate?: number }> = [];
+
+  if (fullBackfill) {
+    for (let index = 0; index < BACKFILL_WINDOWS; index++) {
+      const end = now - index * WINDOW_DAYS * DAY_SECONDS;
+      windows.push({
+        startDate: end - WINDOW_DAYS * DAY_SECONDS,
+        // The newest window is left open-ended. end-date is exclusive, so
+        // pinning it to "now" drops anything timestamped later today — which
+        // is most of a day's pending activity, depending on the zone.
+        ...(index === 0 ? {} : { endDate: end }),
+      });
+    }
+  } else {
+    windows.push({ startDate: now - INCREMENTAL_DAYS * DAY_SECONDS });
   }
 
-  if (fullBackfill && collected.length >= PAGE_SIZE * MAX_PAGES_BACKFILL) {
-    console.warn(
-      `[sync] backfill for ${accountId} hit the ${MAX_PAGES_BACKFILL}-page cap; older history was not fetched`,
-    );
+  const merged = new Map<string, SimpleFinAccount>();
+  const warnings: string[] = [];
+
+  for (const window of windows) {
+    const set = await fetchAccounts(accessUrl, window);
+    warnings.push(...collectErrors(set));
+
+    for (const account of set.accounts) {
+      const existing = merged.get(account.id);
+      if (!existing) {
+        merged.set(account.id, { ...account, transactions: [...(account.transactions ?? [])] });
+        continue;
+      }
+      const seen = new Set(existing.transactions?.map((txn) => txn.id));
+      for (const transaction of account.transactions ?? []) {
+        if (!seen.has(transaction.id)) existing.transactions?.push(transaction);
+      }
+    }
+
+    // No early exit on an empty window. A quiet quarter is not the end of the
+    // history, and stopping there would silently drop everything older. Four
+    // requests is well inside the daily quota.
   }
 
-  return collected;
+  return { accounts: [...merged.values()], warnings: [...new Set(warnings)] };
 }
 
 export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
@@ -88,18 +145,20 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
       accountsSynced: 0,
       transactionsUpserted: 0,
       pendingSettled: 0,
+      warnings: [],
       error: 'A sync is already running',
     };
   }
 
-  const enrollment = getEnrollment();
-  if (!enrollment) {
+  const accessUrl = getAccessUrl();
+  if (!accessUrl) {
     return {
       status: 'error',
       accountsSynced: 0,
       transactionsUpserted: 0,
       pendingSettled: 0,
-      error: 'No bank is connected',
+      warnings: [],
+      error: 'SimpleFIN is not connected',
     };
   }
 
@@ -107,34 +166,27 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
   const db = getDb();
   const startedAt = new Date().toISOString();
   const logId = db
-    .prepare(
-      `INSERT INTO sync_log (started_at, trigger, status) VALUES (?, ?, 'running')`,
-    )
+    .prepare(`INSERT INTO sync_log (started_at, trigger, status) VALUES (?, ?, 'running')`)
     .run(startedAt, trigger).lastInsertRowid as number;
 
   let accountsSynced = 0;
   let transactionsUpserted = 0;
   let pendingSettled = 0;
+  let warnings: string[] = [];
 
   try {
-    const accounts = await listAccounts(enrollment.accessToken);
+    const existingRows = db.prepare('SELECT COUNT(*) AS n FROM transactions').get() as { n: number };
+    const fullBackfill = existingRows.n === 0;
+
+    const outcome = await fetchEverything(accessUrl, fullBackfill);
+    warnings = outcome.warnings;
     const now = new Date().toISOString();
 
-    for (const account of accounts) {
-      let available: number | null = null;
-      let ledger: number | null = null;
-      try {
-        const balances = await getBalances(enrollment.accessToken, account.id);
-        available = balances.available === null ? null : toCents(balances.available);
-        ledger = balances.ledger === null ? null : toCents(balances.ledger);
-      } catch (error) {
-        // A closed or unsupported account should not abort the whole sync.
-        if (error instanceof TellerError && error.failure === 'gone') {
-          console.warn(`[sync] balances unavailable for ${account.id}: ${error.message}`);
-        } else {
-          throw error;
-        }
-      }
+    for (const account of outcome.accounts) {
+      const ledger = account.balance === undefined ? null : toCents(account.balance);
+      const availableRaw = account['available-balance'];
+      // The protocol omits available-balance when it equals balance.
+      const available = availableRaw === undefined || availableRaw === null ? ledger : toCents(availableRaw);
 
       db.prepare(
         `INSERT INTO accounts (
@@ -144,9 +196,6 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
          ON CONFLICT (id) DO UPDATE SET
            name = excluded.name,
            institution = excluded.institution,
-           last_four = excluded.last_four,
-           type = excluded.type,
-           subtype = excluded.subtype,
            currency = excluded.currency,
            available_cents = excluded.available_cents,
            ledger_cents = excluded.ledger_cents,
@@ -156,30 +205,21 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
       ).run(
         account.id,
         account.name,
-        account.institution?.name ?? null,
-        account.last_four,
-        account.type,
-        account.subtype,
+        account.org?.name ?? null,
+        null,
+        'depository',
+        'checking',
         account.currency || 'USD',
         available,
         ledger,
-        now,
-        JSON.stringify(account),
+        account['balance-date'] ? new Date(account['balance-date'] * 1000).toISOString() : now,
+        JSON.stringify({ ...account, transactions: undefined }),
         now,
         now,
       );
       accountsSynced += 1;
 
-      const existing = db
-        .prepare('SELECT COUNT(*) AS n FROM transactions WHERE account_id = ?')
-        .get(account.id) as { n: number };
-      const fullBackfill = existing.n === 0;
-
-      const fetched = await fetchTransactionsFor(
-        enrollment.accessToken,
-        account.id,
-        fullBackfill,
-      );
+      const fetched = account.transactions ?? [];
       if (fetched.length === 0) continue;
 
       const upsert = db.prepare(
@@ -187,7 +227,7 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
            id, account_id, date, amount_cents, description, normalized_description,
            merchant, status, source, teller_type, teller_category, dedupe_key,
            raw, first_seen_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'teller', ?, ?, ?, ?, ?, ?)
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'simplefin', ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO UPDATE SET
            date = excluded.date,
            amount_cents = excluded.amount_cents,
@@ -195,53 +235,49 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
            normalized_description = excluded.normalized_description,
            merchant = excluded.merchant,
            status = excluded.status,
-           teller_type = excluded.teller_type,
-           teller_category = excluded.teller_category,
            dedupe_key = excluded.dedupe_key,
            raw = excluded.raw,
            updated_at = excluded.updated_at`,
       );
 
-      const oldestFetched = fetched.reduce(
-        (min, txn) => (txn.date < min ? txn.date : min),
-        fetched[0]!.date,
-      );
-
-      // A statement import may already hold this charge under its own id.
       const findImported = db.prepare(
-        `SELECT id FROM transactions
-         WHERE dedupe_key = ? AND source = 'import' AND id != ?`,
+        `SELECT id FROM transactions WHERE dedupe_key = ? AND source = 'import' AND id != ?`,
       );
       const deleteRow = db.prepare('DELETE FROM transactions WHERE id = ?');
       const moveOverride = db.prepare(
         `UPDATE OR REPLACE overrides SET transaction_id = ? WHERE transaction_id = ?`,
       );
 
-      const writeBatch = db.transaction((rows: TellerTransaction[]) => {
-        for (const txn of rows) {
-          const amountCents = toCents(txn.amount);
-          const normalized = normalizeDescription(txn.description);
-          const key = dedupeKey(txn.date, amountCents, txn.description);
+      const dates = fetched.map(transactionDate);
+      const oldestFetched = dates.reduce((min, date) => (date < min ? date : min), dates[0]!);
 
-          // Teller data supersedes an imported statement row for the same charge.
-          for (const dup of findImported.all(key, txn.id) as Array<{ id: string }>) {
-            moveOverride.run(txn.id, dup.id);
-            deleteRow.run(dup.id);
+      const writeBatch = db.transaction((rows: SimpleFinTransaction[]) => {
+        for (const transaction of rows) {
+          const id = rowId(account.id, transaction.id);
+          const amountCents = toCents(transaction.amount);
+          const date = transactionDate(transaction);
+          const description = transaction.description || transaction.payee || '(no description)';
+          const key = dedupeKey(date, amountCents, description);
+
+          // A statement import may already hold this charge under its own id.
+          for (const duplicate of findImported.all(key, id) as Array<{ id: string }>) {
+            moveOverride.run(id, duplicate.id);
+            deleteRow.run(duplicate.id);
           }
 
           upsert.run(
-            txn.id,
-            txn.account_id,
-            txn.date,
+            id,
+            account.id,
+            date,
             amountCents,
-            txn.description,
-            normalized,
-            txn.details?.counterparty?.name ?? null,
-            txn.status,
-            txn.type ?? null,
-            txn.details?.category ?? null,
+            description,
+            normalizeDescription(description),
+            transaction.payee ?? null,
+            isPending(transaction) ? 'pending' : 'posted',
+            null,
+            null,
             key,
-            JSON.stringify(txn),
+            JSON.stringify(transaction),
             now,
             now,
           );
@@ -251,84 +287,99 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
       writeBatch(fetched);
 
       // --- Reconcile pending charges that settled under a different id -----
-      const returnedIds = new Set(fetched.map((txn) => txn.id));
-      // A settling charge is dated on or BEFORE the posted row that replaces
-      // it, so the candidate window has to reach back past the oldest row we
-      // just fetched. Anchoring it at oldestFetched leaves every pending that
-      // settles under a new id sitting in the table as a duplicate forever.
+      const returnedIds = new Set(fetched.map((txn) => rowId(account.id, txn.id)));
+      // A settling charge is dated on or before the posted row replacing it, so
+      // the candidate window reaches back past the oldest row just fetched.
       const reconcileFloor = addDays(oldestFetched, -SETTLE_WINDOW_DAYS);
       const stalePending = db
         .prepare(
           `SELECT id, account_id, amount_cents, date, normalized_description
            FROM transactions
-           WHERE account_id = ? AND status = 'pending' AND source = 'teller' AND date >= ?`,
+           WHERE account_id = ? AND status = 'pending' AND source = 'simplefin' AND date >= ?`,
         )
         .all(account.id, reconcileFloor) as StoredPending[];
 
-      const postedRows = fetched.filter((txn) => txn.status === 'posted');
+      const postedRows = fetched.filter((txn) => !isPending(txn));
       // Two identical pending charges must not both collapse onto one posted
       // row, or a real charge silently disappears.
       const claimed = new Set<string>();
 
       const reconcile = db.transaction((pendings: StoredPending[]) => {
         for (const pending of pendings) {
-          if (returnedIds.has(pending.id)) continue; // Teller still reports it.
+          if (returnedIds.has(pending.id)) continue; // SimpleFIN still reports it.
 
-          const match = postedRows.find(
-            (posted) =>
-              !claimed.has(posted.id) &&
-              toCents(posted.amount) === pending.amount_cents &&
-              daysApart(posted.date, pending.date) <= SETTLE_WINDOW_DAYS &&
-              descriptionsSimilar(
-                normalizeDescription(posted.description),
-                pending.normalized_description,
-              ),
-          );
+          const match = postedRows.find((posted) => {
+            const postedId = rowId(account.id, posted.id);
+            if (claimed.has(postedId)) return false;
+            if (toCents(posted.amount) !== pending.amount_cents) return false;
+            if (daysApart(transactionDate(posted), pending.date) > SETTLE_WINDOW_DAYS) return false;
+            return descriptionsSimilar(
+              normalizeDescription(posted.description || posted.payee || ''),
+              pending.normalized_description,
+            );
+          });
 
           if (match) {
-            claimed.add(match.id);
+            const matchId = rowId(account.id, match.id);
+            claimed.add(matchId);
             db.prepare('UPDATE transactions SET settled_from = ? WHERE id = ?').run(
               pending.id,
-              match.id,
+              matchId,
             );
-            // Carry a manual reclassification across the id change.
-            moveOverride.run(match.id, pending.id);
+            moveOverride.run(matchId, pending.id);
             deleteRow.run(pending.id);
             pendingSettled += 1;
           } else if (daysApart(now.slice(0, 10), pending.date) > 14) {
-            // Teller stopped reporting it and nothing matches: a dropped
-            // authorisation. Leaving it would inflate spending forever.
+            // Dropped authorisation. Leaving it would inflate spending forever.
             db.prepare('DELETE FROM overrides WHERE transaction_id = ?').run(pending.id);
             deleteRow.run(pending.id);
-            console.warn(
-              `[sync] dropped stale pending ${pending.id} (${pending.date}, ${pending.amount_cents}c)`,
-            );
+            console.warn(`[sync] dropped stale pending ${pending.id} (${pending.date})`);
           }
         }
       });
       reconcile(stalePending);
     }
 
-    db.prepare(
-      `UPDATE sync_log SET finished_at = ?, status = 'ok',
-       accounts_synced = ?, transactions_upserted = ? WHERE id = ?`,
-    ).run(new Date().toISOString(), accountsSynced, transactionsUpserted, logId);
-
-    console.log(
-      `[sync] ${trigger}: ${accountsSynced} account(s), ${transactionsUpserted} transaction(s), ${pendingSettled} settled`,
-    );
-    return { status: 'ok', accountsSynced, transactionsUpserted, pendingSettled };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-
-    if (error instanceof TellerError && error.needsReconnect) {
-      markDisconnected(`${error.code}: ${error.message}`);
-      console.error(`[sync] enrollment disconnected — ${error.code}`);
+    // SimpleFIN reports a broken bank link in errlist alongside HTTP 200, so a
+    // successful response is not on its own proof the data is current.
+    if (warnings.length > 0 && indicatesReconnect(warnings)) {
+      markDisconnected(warnings.join('; '), 'reconnect');
+    } else if (warnings.length === 0) {
+      clearDisconnection();
     }
 
     db.prepare(
-      `UPDATE sync_log SET finished_at = ?, status = 'error',
-       accounts_synced = ?, transactions_upserted = ?, error = ? WHERE id = ?`,
+      `UPDATE sync_log SET finished_at = ?, status = ?, accounts_synced = ?,
+       transactions_upserted = ?, error = ? WHERE id = ?`,
+    ).run(
+      new Date().toISOString(),
+      'ok',
+      accountsSynced,
+      transactionsUpserted,
+      warnings.length > 0 ? warnings.join('; ') : null,
+      logId,
+    );
+
+    console.log(
+      `[sync] ${trigger}: ${accountsSynced} account(s), ${transactionsUpserted} transaction(s), ${pendingSettled} settled${
+        warnings.length ? `, ${warnings.length} warning(s)` : ''
+      }`,
+    );
+    return { status: 'ok', accountsSynced, transactionsUpserted, pendingSettled, warnings };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    if (error instanceof SimpleFinError) {
+      if (error.failure === 'payment_required') {
+        markDisconnected(error.message, 'payment_required');
+      } else if (error.needsReconnect) {
+        markDisconnected(error.message, 'reconnect');
+      }
+    }
+
+    db.prepare(
+      `UPDATE sync_log SET finished_at = ?, status = 'error', accounts_synced = ?,
+       transactions_upserted = ?, error = ? WHERE id = ?`,
     ).run(new Date().toISOString(), accountsSynced, transactionsUpserted, message, logId);
 
     console.error(`[sync] ${trigger} failed: ${message}`);
@@ -337,6 +388,7 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
       accountsSynced,
       transactionsUpserted,
       pendingSettled,
+      warnings,
       error: message,
     };
   } finally {

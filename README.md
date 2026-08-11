@@ -1,7 +1,7 @@
 # Finance dashboard
 
 A single-user personal finance dashboard. Reads one Chase checking account
-through [Teller](https://teller.io), caches everything in SQLite, and renders one
+through [SimpleFIN](https://www.simplefin.org), caches everything in SQLite, and renders one
 mobile-first page: the Friday allowance, available balance, upcoming charges,
 monthly commitments, spending split, and recent transactions.
 
@@ -15,7 +15,7 @@ bundler, no external database.
 | Step | State |
 |---|---|
 | 1. Scaffold, auth, deployable shell | **Done** |
-| 2. Teller mTLS client, Connect enrollment, sync + cron | **Done** |
+| 2. SimpleFIN client, token claim, sync + cron | **Done** |
 | 3. Classification rules and Friday paycheck engine | **Done** |
 | 4. Dashboard UI and manual overrides | Not started |
 | 5. PWA (manifest, service worker, icons) | Not started |
@@ -30,7 +30,7 @@ lands.
 ## Requirements
 
 - Node 22 or newer (developed on 24)
-- A Teller account — free developer tier, 100 live connections
+- A SimpleFIN Bridge subscription — $15/year
 - A Railway account — the $5 Hobby plan is enough
 - `poppler` for the statement importer _(step 6)_: `brew install poppler`
 
@@ -54,8 +54,8 @@ node dist/scripts/generate-key.js
 ```
 
 Copy `.env.example` to `.env` and paste both values in. `ENCRYPTION_KEY` is
-generated **once** — rotating it makes the stored Teller token undecryptable and
-forces a bank re-link.
+generated **once** — rotating it makes the stored SimpleFIN credential
+undecryptable and forces a reconnect.
 
 Then:
 
@@ -92,73 +92,54 @@ Every variable is documented inline in [`.env.example`](.env.example). Summary:
 | `SESSION_DAYS` | — | Session cookie lifetime, default 30 |
 | `LOGIN_MAX_ATTEMPTS` | — | Login rate limit, default 5 |
 | `LOGIN_WINDOW_MINUTES` | — | Rate limit window, default 15 |
-| `ENCRYPTION_KEY` | yes | Base64 32 bytes. Encrypts the Teller token at rest |
-| `TELLER_APPLICATION_ID` | step 2 | From the Teller dashboard. Not a secret — it reaches the browser |
-| `TELLER_ENVIRONMENT` | step 2 | `sandbox`, `development`, or `production` |
-| `TELLER_CERT_B64` | step 2 | Base64 of your Teller client certificate |
-| `TELLER_KEY_B64` | step 2 | Base64 of your Teller private key |
-| `TELLER_API_BASE` | — | Defaults to `https://api.teller.io` |
+| `ENCRYPTION_KEY` | yes | Base64 32 bytes. Encrypts the SimpleFIN access URL at rest |
+| `SIMPLEFIN_BRIDGE_URL` | — | Where the "get a token" link points. Defaults to the Bridge |
 | `SYNC_ENABLED` | — | Set `false` to boot without the scheduler |
 
-A missing Teller variable does **not** stop the app booting. It disables syncing
-and says so on the dashboard, so a half-configured deploy explains itself
-instead of failing at the first API call. A missing `APP_PASSWORD_HASH` or
-`ENCRYPTION_KEY` **does** stop the boot, with the reason printed.
+SimpleFIN needs no environment credentials at all — the access URL lives
+encrypted in the database, not in the environment. A missing
+`APP_PASSWORD_HASH` or `ENCRYPTION_KEY` stops the boot, with the reason
+printed.
 
 ---
 
-## Teller setup _(step 2)_
+## SimpleFIN setup _(step 2)_
 
-Teller authenticates your **server** with a mutual-TLS client certificate, and
-authenticates the **bank connection** with an access token you get once, through
-Teller Connect. Two different things — you need both.
+Teller, the original provider, withdrew its API in July 2026. This app uses
+[SimpleFIN Bridge](https://beta-bridge.simplefin.org) instead: $15/year or
+$1.50/month, covering up to 25 institutions.
 
-### 1. Create the application
+There is **no certificate, no private key, and no API key in the environment**.
+The whole connection is one pasted token:
 
-Sign in at [teller.io](https://teller.io) and create an application. Copy the
-application ID into `TELLER_APPLICATION_ID`.
+1. **Subscribe and connect your bank.** Sign in at SimpleFIN Bridge, add Chase,
+   and complete their bank login. Chase Bank is on their supported list.
 
-Chase is supported: it appears on Teller's live institution list as `chase`,
-with the `balance` and `transactions` products this app uses. You can confirm
-that yourself at any time:
+2. **Create a setup token.** On the Bridge site, generate a new setup token and
+   copy it. It is a long base64 string.
 
-```bash
-curl -s https://api.teller.io/institutions | grep -o '"name":"Chase"'
-```
+3. **Paste it into the app.** Open `/connect` on your deployed dashboard and
+   paste the token. The server base64-decodes it, POSTs once to the claim URL
+   inside it, and receives an **access URL** containing HTTP Basic credentials.
+   That access URL is encrypted with AES-256-GCM and stored in SQLite.
 
-### 2. Generate the client certificate
+The setup token is **single use** — it stops working the moment it is claimed.
+If you need to reconnect later, generate a fresh one. Pasting a new token
+replaces the stored credential and keeps all existing transaction history.
 
-In the Teller dashboard, under your application's certificates, generate a new
-certificate. You get two files:
+### Limits worth knowing
 
-- `certificate.pem` — the client certificate
-- `private_key.pem` — the private key, shown **once**
-
-Download both. Keep them out of the repo (`certs/` is gitignored).
-
-### 3. Base64-encode them for Railway
-
-Environment variables cannot hold literal newlines, so both files are stored
-base64-encoded on one line:
-
-```bash
-base64 -i certificate.pem | tr -d '\n'
-```
-
-```bash
-base64 -i private_key.pem | tr -d '\n'
-```
-
-Put the first in `TELLER_CERT_B64`, the second in `TELLER_KEY_B64`. The app
-decodes them in memory at startup and never writes them to disk.
-
-### 4. Free tier
-
-The developer tier covers 100 live connections at no cost, which is 99 more than
-this app needs. `TELLER_ENVIRONMENT=development` reaches real banks on that tier.
-`sandbox` returns fake data and needs no certificate — useful for testing.
-
----
+- **Roughly 24 requests per day.** The twice-daily sync uses one request each;
+  a first-run backfill uses four. Comfortably inside the quota.
+- **90 days maximum per request.** The first sync therefore walks back a year
+  in four 90-day windows. How much history actually comes back varies by
+  institution, which is why the statement importer still matters.
+- **`pending=1` is mandatory.** SimpleFIN omits pending transactions unless
+  asked. The client always sends it; a test asserts this, because forgetting it
+  would silently make the dashboard three to four days stale.
+- **Errors can arrive with HTTP 200.** A broken bank link is reported in the
+  response's `errlist`, not the status code, so a "successful" response is not
+  on its own proof the data is current. Those warnings are surfaced.
 
 ## Railway deploy
 
@@ -171,9 +152,11 @@ this app needs. `TELLER_ENVIRONMENT=development` reaches real banks on that tier
    In the service, go to Variables → Volumes → add one with mount path `/data`.
 
 3. **Set the variables.** At minimum `NODE_ENV=production`,
-   `DB_PATH=/data/finance.db`, `APP_PASSWORD_HASH`, and `ENCRYPTION_KEY`, plus
-   the Teller values once step 2 lands. Paste the password hash unquoted —
-   Railway's variable editor does not expand `$`.
+   `DB_PATH=/data/finance.db`, `APP_PASSWORD_HASH`, `ENCRYPTION_KEY` and
+   `APP_TIMEZONE=America/Chicago`. There are no provider credentials to set —
+   SimpleFIN is connected by pasting a token at `/connect` after deploying.
+   Paste the password hash unquoted; Railway's variable editor does not
+   expand `$`.
 
 4. **Generate a domain.** Settings → Networking → Generate Domain. Railway
    terminates TLS for you; the app trusts one proxy hop and redirects any plain
@@ -276,30 +259,24 @@ spent out of the account, so the shortfall carries.
 
 ## Security notes
 
-- The Teller access token is encrypted with AES-256-GCM before it touches
-  SQLite, and is only ever read server-side. It is never rendered into a page,
-  returned by an endpoint, or logged. All Teller **API calls** happen on the
-  server.
+- The SimpleFIN access URL carries HTTP Basic credentials for the full account
+  history. It is encrypted with AES-256-GCM before it touches SQLite and is only
+  ever read server-side — never rendered into a page, returned by an endpoint,
+  or logged. All SimpleFIN calls happen on the server.
 
-- **One unavoidable exception, by Teller's design:** Teller Connect hands the
-  access token to the *browser* in its `onSuccess` callback. There is no
-  server-side exchange step — unlike Plaid, Teller has no "public token" you
-  swap for a real one. So at enrollment, and only then, the token exists in the
-  page's JavaScript for a moment before being POSTed to the server over HTTPS
-  and encrypted at rest. It is never sent back to the browser afterwards.
+- **The setup token is claimed server-side.** It arrives once in a form POST,
+  is exchanged for the access URL by the server, and is never stored in raw
+  form or echoed back into the page. Because SimpleFIN needs no browser SDK,
+  no third-party script runs on any page of this app, and the credential never
+  passes through client-side JavaScript. (Teller, the original provider,
+  handed its access token to the browser; SimpleFIN's model avoids that
+  entirely.)
 
-  Two things limit this. First, Teller's own documentation states that "access
-  tokens are useless without a client certificate belonging to the application
-  the user consented giving access to" — the mTLS certificate never leaves the
-  server, so a leaked token alone cannot read your accounts. Second, enrollment
-  is guarded by a single-use, 15-minute, server-generated `nonce`, so a token
-  captured elsewhere cannot be replayed into this app's storage.
 - The session cookie is `httpOnly`, `SameSite=Lax`, `Secure` in production, and
   holds a random 256-bit token. Only the SHA-256 of that token is stored, so a
   database leak does not hand over a live session.
 - The login route is rate limited to 5 attempts per 15 minutes per IP. A correct
   password is also refused while the limit is active.
 - Content-Security-Policy is `default-src 'self'` with no inline scripts or
-  styles. The only external origin allowed is `cdn.teller.io`, for Teller
-  Connect.
-- `certs/`, `data/`, `.env` and `statements/` are gitignored.
+  styles, `frame-src 'none'`, and no external origins allowed at all.
+- `data/`, `.env` and `statements/` are gitignored.

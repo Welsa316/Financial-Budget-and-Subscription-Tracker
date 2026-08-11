@@ -64,48 +64,57 @@ export function loginPage(options: { error?: string; next?: string }): string {
 }
 
 export interface ConnectPageData {
-  applicationId: string;
-  environment: string;
-  nonce: string;
-  /** Present when repairing an existing enrollment rather than creating one. */
-  enrollmentId: string | null;
-  institution: string | null;
+  bridgeUrl: string;
+  alreadyConnected: boolean;
+  error?: string;
 }
 
 export function connectPage(data: ConnectPageData): string {
-  const repairing = Boolean(data.enrollmentId);
+  const { bridgeUrl, alreadyConnected, error } = data;
+
   const body = `    <main class="auth">
-      <div class="auth__card auth__card--wide"
-           id="connect-root"
-           data-application-id="${esc(data.applicationId)}"
-           data-environment="${esc(data.environment)}"
-           data-nonce="${esc(data.nonce)}"
-           data-institution="${esc(data.institution ?? '')}"
-           data-enrollment-id="${esc(data.enrollmentId ?? '')}">
-        <h1 class="auth__title">${repairing ? 'Reconnect your bank' : 'Connect your bank'}</h1>
+      <div class="auth__card auth__card--wide">
+        <h1 class="auth__title">${alreadyConnected ? 'Reconnect SimpleFIN' : 'Connect SimpleFIN'}</h1>
         <p class="auth__sub">
-          ${
-            repairing
-              ? 'Chase needs you to sign in again before syncing can resume. Your history stays where it is.'
-              : 'You will sign in to Chase through Teller. This app never sees your bank username or password.'
-          }
+          Paste a SimpleFIN <strong>setup token</strong> below. It is exchanged
+          for credentials on the server and stored encrypted — the token itself
+          is single use and stops working the moment it is claimed.
         </p>
 
-        <div class="connect__status" id="connect-status" role="status" aria-live="polite"></div>
+        ${error ? `<p class="auth__error" role="alert">${esc(error)}</p>` : ''}
 
-        <button class="btn btn--primary btn--block" id="connect-launch" type="button">
-          ${repairing ? 'Reconnect Chase' : 'Continue to Chase'}
-        </button>
+        ${
+          alreadyConnected
+            ? `<p class="connect__note">
+          You already have a connection. Pasting a new token replaces it.
+          Your transaction history is kept either way.
+        </p>`
+            : ''
+        }
+
+        <ol class="steps">
+          <li>Sign in at <a href="${esc(bridgeUrl)}" target="_blank" rel="noopener noreferrer">SimpleFIN Bridge</a>.</li>
+          <li>Connect Chase there, if you have not already.</li>
+          <li>Create a new <strong>setup token</strong> and copy it.</li>
+          <li>Paste it here.</li>
+        </ol>
+
+        <form method="post" action="/connect" class="auth__form">
+          <label class="auth__label" for="setup-token">Setup token</label>
+          <textarea class="auth__input auth__input--area" id="setup-token" name="setupToken"
+                    rows="4" required autocomplete="off" spellcheck="false"
+                    placeholder="aHR0cHM6Ly9icmlkZ2Uuc2ltcGxlZmluLm9yZy9zaW1wbGVmaW4vY2xhaW0v..."></textarea>
+          <button class="btn btn--primary btn--block" type="submit">Connect and sync</button>
+        </form>
+
         <a class="btn btn--quiet btn--block" href="/">Back to dashboard</a>
       </div>
     </main>`;
 
   return layout({
-    title: repairing ? 'Reconnect · Finance' : 'Connect · Finance',
+    title: alreadyConnected ? 'Reconnect · Finance' : 'Connect · Finance',
     body,
     bodyClass: 'body--auth',
-    headScripts: ['https://cdn.teller.io/connect/connect.js'],
-    scripts: ['/static/connect.js'],
   });
 }
 
@@ -137,7 +146,7 @@ export interface DashboardData {
     trigger: string;
   } | null;
   bankConnected: boolean;
-  disconnection: { at: string; reason: string } | null;
+  disconnection: { at: string; reason: string; kind: 'reconnect' | 'payment_required' } | null;
   problems: ConfigProblem[];
   transactionCount: number;
   pendingCount: number;
@@ -221,13 +230,24 @@ export function dashboardPage(data: DashboardData): string {
       ${
         disconnection
           ? `<section class="card card--alert" role="alert">
-        <h2 class="card__title">Bank disconnected</h2>
+        <h2 class="card__title">${
+          disconnection.kind === 'payment_required'
+            ? 'SimpleFIN subscription lapsed'
+            : 'Bank disconnected'
+        }</h2>
         <p class="card__body">
-          Chase stopped accepting the connection on ${esc(formatStamp(disconnection.at))}.
+          ${
+            disconnection.kind === 'payment_required'
+              ? `SimpleFIN stopped returning data on ${esc(formatStamp(disconnection.at))} because
+                 the subscription needs renewing. This is a billing problem, not a bank problem.`
+              : `The connection stopped working on ${esc(formatStamp(disconnection.at))}.`
+          }
           Balances and transactions below are from the last successful sync and
           are <strong>not current</strong>.
         </p>
-        <a class="btn btn--primary btn--block" href="/connect">Reconnect your bank</a>
+        <a class="btn btn--primary btn--block" href="${
+          disconnection.kind === 'payment_required' ? '/connect' : '/connect'
+        }">${disconnection.kind === 'payment_required' ? 'Renew, then reconnect' : 'Reconnect SimpleFIN'}</a>
         <p class="card__hint">${esc(disconnection.reason)}</p>
       </section>`
           : ''
@@ -236,12 +256,12 @@ export function dashboardPage(data: DashboardData): string {
       ${
         !bankConnected
           ? `<section class="card card--prompt">
-        <h2 class="card__title">No bank connected</h2>
+        <h2 class="card__title">Not connected</h2>
         <p class="card__body">
-          Link your Chase checking account to start pulling balances and
-          transactions. Nothing appears on this dashboard until you do.
+          Connect SimpleFIN to start pulling balances and transactions from
+          Chase. Nothing appears on this dashboard until you do.
         </p>
-        <a class="btn btn--primary btn--block" href="/connect">Connect bank</a>
+        <a class="btn btn--primary btn--block" href="/connect">Connect SimpleFIN</a>
       </section>`
           : ''
       }

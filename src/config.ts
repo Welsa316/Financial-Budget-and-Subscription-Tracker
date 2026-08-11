@@ -73,12 +73,11 @@ export const config = {
   /** Base64-encoded 32-byte key used for AES-256-GCM at-rest encryption. */
   encryptionKey: str('ENCRYPTION_KEY'),
 
-  teller: {
-    applicationId: str('TELLER_APPLICATION_ID'),
-    environment: str('TELLER_ENVIRONMENT', 'development'),
-    certB64: str('TELLER_CERT_B64'),
-    keyB64: str('TELLER_KEY_B64'),
-    apiBase: str('TELLER_API_BASE', 'https://api.teller.io'),
+  simplefin: {
+    /** Only used to build the "get a setup token" link in the UI. */
+    bridgeUrl: str('SIMPLEFIN_BRIDGE_URL', 'https://beta-bridge.simplefin.org'),
+    /** Overridden in tests to point at a local mock. */
+    apiBase: str('SIMPLEFIN_API_BASE', ''),
   },
 
   /** Set SYNC_ENABLED=false to boot without the scheduler (useful in tests). */
@@ -138,29 +137,8 @@ export function validateConfig(): ConfigProblem[] {
     }
   }
 
-  // Teller credentials are only needed once you start syncing, so a missing
-  // one degrades the dashboard to "not connected" instead of killing the boot.
-  if (!config.teller.applicationId) {
-    problems.push({
-      key: 'TELLER_APPLICATION_ID',
-      message: 'Missing. Bank syncing is disabled until this is set.',
-      fatal: false,
-    });
-  }
-  if (!config.teller.certB64 || !config.teller.keyB64) {
-    problems.push({
-      key: 'TELLER_CERT_B64 / TELLER_KEY_B64',
-      message: 'Missing. Bank syncing is disabled until both are set.',
-      fatal: false,
-    });
-  }
-
+  // SimpleFIN needs no environment credentials at all. The access URL is
+  // obtained by claiming a setup token and lives encrypted in the database,
+  // so there is nothing to validate here.
   return problems;
-}
-
-/** True when every credential needed to reach Teller is present. */
-export function tellerConfigured(): boolean {
-  return Boolean(
-    config.teller.applicationId && config.teller.certB64 && config.teller.keyB64,
-  );
 }
