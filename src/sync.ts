@@ -240,8 +240,12 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
            updated_at = excluded.updated_at`,
       );
 
+      // Matched on date and amount, then on description similarity rather than
+      // an exact key. A statement and the API word the same charge differently,
+      // and an exact-key match leaves the imported copy behind as a duplicate.
       const findImported = db.prepare(
-        `SELECT id FROM transactions WHERE dedupe_key = ? AND source = 'import' AND id != ?`,
+        `SELECT id, normalized_description FROM transactions
+         WHERE source = 'import' AND date = ? AND amount_cents = ? AND id != ?`,
       );
       const deleteRow = db.prepare('DELETE FROM transactions WHERE id = ?');
       const moveOverride = db.prepare(
@@ -258,9 +262,15 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
           const date = transactionDate(transaction);
           const description = transaction.description || transaction.payee || '(no description)';
           const key = dedupeKey(date, amountCents, description);
+          const normalized = normalizeDescription(description);
 
           // A statement import may already hold this charge under its own id.
-          for (const duplicate of findImported.all(key, id) as Array<{ id: string }>) {
+          const candidates = findImported.all(date, amountCents, id) as Array<{
+            id: string;
+            normalized_description: string;
+          }>;
+          for (const duplicate of candidates) {
+            if (!descriptionsSimilar(normalized, duplicate.normalized_description)) continue;
             moveOverride.run(id, duplicate.id);
             deleteRow.run(duplicate.id);
           }
@@ -271,7 +281,7 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
             date,
             amountCents,
             description,
-            normalizeDescription(description),
+            normalized,
             transaction.payee ?? null,
             isPending(transaction) ? 'pending' : 'posted',
             null,

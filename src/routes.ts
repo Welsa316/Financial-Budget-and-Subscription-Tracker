@@ -21,6 +21,8 @@ import { SimpleFinError, claimSetupToken } from './simplefin.js';
 import { isSyncRunning, nextScheduledRun, runSync } from './sync.js';
 import { connectPage, dashboardPage, errorPage, loginPage, type AccountRow } from './views.js';
 import { buildDashboard } from './dashboard.js';
+import { dedupeKey, descriptionsSimilar, normalizeDescription } from './normalize.js';
+import { importId } from './statements.js';
 
 export const router = Router();
 
@@ -166,6 +168,110 @@ router.get('/api/sync-status', (_req: Request, res: Response) => {
 });
 
 // --- Dashboard ------------------------------------------------------------
+
+// --- Statement import -----------------------------------------------------
+
+interface IncomingStatementRow {
+  date?: unknown;
+  amountCents?: unknown;
+  description?: unknown;
+}
+
+/**
+ * Loads parsed statement rows. The PDFs and poppler live on the laptop while
+ * the database lives on the Railway volume, so the CLI parses locally and
+ * posts the result here.
+ */
+router.post('/api/import', (req: Request, res: Response) => {
+  const rows = (req.body as { transactions?: unknown })?.transactions;
+  if (!Array.isArray(rows)) {
+    res.status(400).json({ error: 'Expected a transactions array.' });
+    return;
+  }
+
+  const db = getDb();
+  const accounts = db.prepare('SELECT id FROM accounts ORDER BY id').all() as Array<{ id: string }>;
+  const requested = (req.body as { accountId?: unknown }).accountId;
+
+  let accountId: string;
+  if (typeof requested === 'string' && requested) {
+    accountId = requested;
+  } else if (accounts.length === 1) {
+    accountId = accounts[0]!.id;
+  } else if (accounts.length === 0) {
+    res.status(409).json({
+      error: 'No account exists yet. Connect SimpleFIN and sync once before importing statements.',
+    });
+    return;
+  } else {
+    res.status(409).json({
+      error: `Multiple accounts exist; pass accountId. Options: ${accounts.map((a) => a.id).join(', ')}`,
+    });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  // Same date and amount, then description similarity — a statement and the API
+  // word the same charge differently, so exact-key matching misses duplicates.
+  const sameDateAndAmount = db.prepare(
+    'SELECT normalized_description FROM transactions WHERE date = ? AND amount_cents = ?',
+  );
+  const insert = db.prepare(
+    `INSERT INTO transactions (
+       id, account_id, date, amount_cents, description, normalized_description,
+       merchant, status, source, dedupe_key, raw, first_seen_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'posted', 'import', ?, ?, ?, ?)
+     ON CONFLICT (id) DO NOTHING`,
+  );
+
+  let inserted = 0;
+  let duplicates = 0;
+  let invalid = 0;
+
+  const load = db.transaction((items: IncomingStatementRow[]) => {
+    for (const item of items) {
+      const date = typeof item.date === 'string' ? item.date : '';
+      const description = typeof item.description === 'string' ? item.description.trim() : '';
+      const amountCents = typeof item.amountCents === 'number' ? Math.round(item.amountCents) : NaN;
+
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !description || !Number.isFinite(amountCents)) {
+        invalid += 1;
+        continue;
+      }
+
+      // Recomputed server-side rather than trusting the client's key.
+      const key = dedupeKey(date, amountCents, description);
+      const normalized = normalizeDescription(description);
+      const clash = (
+        sameDateAndAmount.all(date, amountCents) as Array<{ normalized_description: string }>
+      ).some((row) => descriptionsSimilar(normalized, row.normalized_description));
+      if (clash) {
+        duplicates += 1;
+        continue;
+      }
+
+      insert.run(
+        importId(key),
+        accountId,
+        date,
+        amountCents,
+        description,
+        normalizeDescription(description),
+        key,
+        JSON.stringify({ source: 'chase-statement', description }),
+        now,
+        now,
+      );
+      inserted += 1;
+    }
+  });
+  load(rows as IncomingStatementRow[]);
+
+  console.log(
+    `[import] ${inserted} inserted, ${duplicates} already known, ${invalid} invalid`,
+  );
+  res.json({ inserted, duplicates, invalid, accountId });
+});
 
 const OVERRIDE_VALUES = new Set(['bill', 'discretionary', 'income', 'ignore']);
 

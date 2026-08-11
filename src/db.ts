@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { config } from './config.js';
+import { dedupeKey, normalizeDescription } from './normalize.js';
 
 export type DB = Database.Database;
 
@@ -142,7 +143,49 @@ const MIGRATIONS: Array<{ version: number; up: string }> = [
       DELETE FROM settings WHERE key LIKE 'teller_%';
     `,
   },
+  {
+    // normalizeDescription now strips statement-only prefixes like
+    // "Card Purchase". Stored normalized_description and dedupe_key values
+    // predate that and would no longer match freshly computed ones, so they are
+    // recomputed in code immediately after this migration runs.
+    version: 3,
+    up: `SELECT 1;`,
+  },
 ];
+
+/**
+ * Rebuilds derived description columns whenever the normalizer changes. Cheap
+ * enough to run at every boot, and it keeps dedupe working after a rule change
+ * rather than silently letting duplicates through.
+ */
+function refreshDerivedColumns(db: DB): void {
+  const rows = db
+    .prepare('SELECT id, date, amount_cents, description, normalized_description FROM transactions')
+    .all() as Array<{
+    id: string;
+    date: string;
+    amount_cents: number;
+    description: string;
+    normalized_description: string;
+  }>;
+
+  const update = db.prepare(
+    'UPDATE transactions SET normalized_description = ?, dedupe_key = ? WHERE id = ?',
+  );
+  let changed = 0;
+
+  const run = db.transaction(() => {
+    for (const row of rows) {
+      const normalized = normalizeDescription(row.description);
+      if (normalized === row.normalized_description) continue;
+      update.run(normalized, dedupeKey(row.date, row.amount_cents, row.description), row.id);
+      changed += 1;
+    }
+  });
+  run();
+
+  if (changed > 0) console.log(`[db] renormalised ${changed} description(s)`);
+}
 
 function migrate(db: DB): void {
   const current = db.pragma('user_version', { simple: true }) as number;
@@ -174,6 +217,7 @@ export function getDb(): DB {
   db.pragma('busy_timeout = 5000');
 
   migrate(db);
+  refreshDerivedColumns(db);
   instance = db;
   return db;
 }
