@@ -1,0 +1,160 @@
+{
+  "_comment": [
+    "Classification rules, derived from 7 months of Chase statements (Dec 2025 - Jul 2026).",
+    "Edit this file to change behaviour; the logic never hardcodes any of it.",
+    "All amounts are in integer CENTS. All match strings are lowercased substrings",
+    "tested against the normalized description (punctuation, reference numbers and",
+    "embedded dates stripped - see src/normalize.ts).",
+    "Precedence, highest first: manual override > exclude > essential > subscription",
+    "> bill pattern > income > discretionary."
+  ],
+
+  "allowance": {
+    "_comment": "Friday paycheck. Pay week runs Friday through Thursday, paid the following Friday.",
+    "rate": 0.15,
+    "weekStartsOn": "friday"
+  },
+
+  "incomeBaseline": {
+    "_comment": "Seeds from 7 months of statements. Recomputed from real data once enough history exists.",
+    "floorCents": 90300,
+    "medianCents": 111400,
+    "averageCents": 136300,
+    "peakCents": 244300,
+    "sampleWeeks": 0,
+    "source": "Chase statements Dec 2025 - Jul 2026"
+  },
+
+  "subscriptions": [
+    {
+      "name": "Claude Code Max",
+      "match": "anthropic",
+      "amountCents": 10975,
+      "cadence": "monthly",
+      "toleranceCents": 300,
+      "allowSplit": true,
+      "_comment": "Sometimes posts as two charges in one cycle (e.g. 21.95 + 88.30). allowSplit tests the combined total of same-merchant charges inside grouping.windowDays, so neither half is missed. Opt-in per subscription: enabling it on Amazon would let two unrelated purchases summing to $8.67 look like the membership."
+    },
+    { "name": "Netflix", "match": "netflix", "amountCents": 4058, "cadence": "monthly", "toleranceCents": 300 },
+    { "name": "Planet Fitness", "match": "planet fitness", "amountCents": 2749, "cadence": "monthly", "toleranceCents": 200 },
+    { "name": "Chase service fee", "match": "monthly service fee", "amountCents": 1500, "cadence": "monthly", "toleranceCents": 100 },
+    { "name": "Amazon", "match": "amazon", "amountCents": 867, "cadence": "monthly", "toleranceCents": 100 },
+    { "name": "Google One", "match": "google one", "amountCents": 548, "cadence": "monthly", "toleranceCents": 100 },
+    {
+      "name": "Railway Hobby",
+      "match": "railway",
+      "amountCents": 500,
+      "cadence": "monthly",
+      "variableAmount": true,
+      "_comment": "$5 base plus usage, so the amount is not checked - any Railway charge counts."
+    },
+    { "name": "Google Workspace", "match": "workspace", "amountCents": 297, "cadence": "monthly", "toleranceCents": 100 },
+    { "name": "Google *Niagara", "match": "niagara", "amountCents": 1535, "cadence": "yearly", "toleranceCents": 200 }
+  ],
+
+  "essentials": [
+    {
+      "name": "Car insurance + phone",
+      "amountCents": 16500,
+      "match": { "all": ["zelle", "dad"] },
+      "direction": "out",
+      "minAbsAmountCents": 10000,
+      "_comment": "No fixed billing date. Identified as a Zelle to Dad over $100."
+    },
+    {
+      "name": "Debt repayment",
+      "amountCents": 28000,
+      "match": { "all": ["zelle", "walid elsayed"] },
+      "direction": "out",
+      "exactAmountCents": 28000,
+      "nominalDayOfMonth": 17,
+      "_comment": "Zelle to myself of exactly $280.00. Nominally due the 17th, but the date moves."
+    },
+    {
+      "name": "Fiqh class (Daris)",
+      "amountCents": 4000,
+      "match": { "any": ["wise inc", "wise transfer", "wise us"] },
+      "direction": "out",
+      "_comment": "Any Wise transfer."
+    }
+  ],
+
+  "billPatterns": {
+    "_comment": "Outgoing charges that count as bills rather than discretionary spending.",
+    "patterns": ["exxon", "affirm", "insurance"]
+  },
+
+  "neverSubscription": {
+    "_comment": "Recurring-looking charges that must never be reported as subscriptions. They still count as discretionary spending.",
+    "patterns": ["cleanup.pictures", "cleanup pictures", "lexinter", "playstation", "game pass", "dave membership"]
+  },
+
+  "exclude": {
+    "_comment": [
+      "Neither income nor spending. Dave advances and repayments net to zero and would",
+      "otherwise inflate both sides. Credit card payments and self-transfers are money",
+      "moving, not money earned or spent.",
+      "VERIFY against real statement text once statements are imported: the exact wording",
+      "Chase uses for Dave and for card payments has not been confirmed yet."
+    ],
+    "patterns": [
+      "dave inc",
+      "dave advance",
+      "chase credit crd",
+      "chase credit card",
+      "credit crd epay",
+      "payment to chase card",
+      "online transfer to chk",
+      "online transfer to sav",
+      "online transfer from chk",
+      "online transfer from sav",
+      "walid elsayed",
+      "cash redemption"
+    ]
+  },
+
+  "income": {
+    "_comment": [
+      "Applies to positive amounts only. exclude wins over include.",
+      "Transfers between my own accounts are NOT listed here - they live in",
+      "exclude.patterns above, so they are ignored whichever direction they run.",
+      "What remains here is credits that are real but are not earnings: a credit",
+      "matching one of these nets against discretionary spending if it can be",
+      "traced back to a purchase, and is otherwise left out of the maths."
+    ],
+    "include": [
+      "zelle from",
+      "zelle payment from",
+      "paypal",
+      "doordash",
+      "atm cash deposit",
+      "cash deposit",
+      "remote online deposit",
+      "remote check deposit",
+      "real time payment",
+      "realtime payment",
+      "rtp credit"
+    ],
+    "exclude": [
+      "purchase return",
+      "return of purchase",
+      "refund",
+      "credit voucher",
+      "reversal"
+    ]
+  },
+
+  "grouping": {
+    "_comment": "Charges from the same merchant within this many days read as one payment, not several subscriptions.",
+    "windowDays": 3
+  },
+
+  "refunds": {
+    "_comment": [
+      "A credit that is not income nets against discretionary spending instead of",
+      "counting as earnings. If it lands in a later week than the purchase it is",
+      "matched back to the original charge by merchant and amount."
+    ],
+    "matchWindowDays": 90
+  }
+}

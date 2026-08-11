@@ -16,7 +16,7 @@ bundler, no external database.
 |---|---|
 | 1. Scaffold, auth, deployable shell | **Done** |
 | 2. Teller mTLS client, Connect enrollment, sync + cron | **Done** |
-| 3. Classification rules and Friday paycheck engine | Not started |
+| 3. Classification rules and Friday paycheck engine | **Done** |
 | 4. Dashboard UI and manual overrides | Not started |
 | 5. PWA (manifest, service worker, icons) | Not started |
 | 6. Chase statement import CLI | Not started |
@@ -220,6 +220,57 @@ Details worth knowing:
   `enrollment.disconnected.*` error puts the dashboard into a "reconnect your
   bank" state. A 502 from the institution does not — it is a transient failure
   and is retried with backoff.
+
+---
+
+## Classification and the Friday paycheck
+
+All rules live in [`config/rules.json`](config/rules.json) — subscriptions,
+essentials, bill patterns, exclusions, income channels, and the allowance rate.
+Edit that file to change behaviour; no logic is hardcoded. Classification is
+fully deterministic: the same transaction always lands in the same place, and
+there are no LLM calls or learned models anywhere in the pipeline.
+
+**Precedence**, highest first:
+
+1. **Manual override** — beats everything, and survives re-syncs.
+2. **Essentials** — deliberately ahead of exclusions. The $280 debt repayment is
+   a Zelle to myself, which the self-transfer exclusion would otherwise swallow.
+   It is a real commitment, not money moving.
+3. **Exclusions** — Dave advances and repayments, credit card payments, and
+   transfers between my own accounts. Neither income nor spending.
+4. **Subscriptions** — merchant pattern *and* amount within tolerance, so an
+   ordinary Amazon order is not mistaken for the $8.67 membership. Railway is
+   marked `variableAmount` because it bills a base plus usage.
+5. **Bill patterns** — gas, Affirm, anything matching `insurance`.
+6. **Income** — only the listed channels count.
+7. Everything else outgoing is **discretionary**.
+
+**Split charges.** Claude Max sometimes posts as two charges in one cycle
+(e.g. $21.95 + $88.30). Neither half is near $109.75, so the per-transaction
+amount check rejects both. A second pass tests the *combined* total of
+same-merchant charges inside the grouping window. It is opt-in per subscription
+(`allowSplit`), because enabling it on Amazon would let two unrelated purchases
+summing to $8.67 look like the membership.
+
+**Credits are not automatically income.** A credit counts as income only if it
+matches a listed income channel. Otherwise it is treated as a possible refund
+and only reduces spending if it can be traced to an earlier discretionary charge
+from the same merchant, capped at that charge's value. An untraceable credit is
+left out of the maths entirely and surfaced for review — crediting it would cut
+spending by its full value and inflate the allowance by the same amount, which
+is a worse error than ignoring it.
+
+**Refund timing.** A refund that lands in a later week than the purchase is
+attributed back to the purchase's week, so a return never leaves a past week
+permanently short.
+
+**The allowance** is `rate x real income that week - discretionary already
+spent`, over a pay week running Friday to Thursday and paid the following
+Friday. On Friday itself the figure shown is the week that ended the day
+before. Pending charges count, and are flagged when they are moving the number.
+The result can be negative, and a negative number is real: the money was already
+spent out of the account, so the shortfall carries.
 
 ---
 

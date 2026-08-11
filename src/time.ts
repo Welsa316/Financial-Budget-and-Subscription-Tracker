@@ -67,6 +67,27 @@ export function addDays(ymd: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
+/**
+ * Adds calendar months, clamping to the end of the target month so that
+ * Jan 31 + 1 month lands on Feb 28 rather than rolling into March.
+ */
+export function addMonths(ymd: string, months: number): string {
+  const date = parseYmd(ymd);
+  const day = date.getUTCDate();
+  date.setUTCDate(1);
+  date.setUTCMonth(date.getUTCMonth() + months);
+  const daysInTargetMonth = new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0, 12),
+  ).getUTCDate();
+  date.setUTCDate(Math.min(day, daysInTargetMonth));
+  return date.toISOString().slice(0, 10);
+}
+
+/** First day of the calendar month containing the given date. */
+export function startOfMonth(ymd: string): string {
+  return `${ymd.slice(0, 7)}-01`;
+}
+
 export function daysBetween(fromYmd: string, toYmd_: string): number {
   const from = parseYmd(fromYmd).getTime();
   const to = parseYmd(toYmd_).getTime();

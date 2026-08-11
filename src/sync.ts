@@ -2,7 +2,7 @@ import { Cron } from 'croner';
 import { config } from './config.js';
 import { getDb } from './db.js';
 import { getEnrollment, markDisconnected } from './enrollment.js';
-import { dedupeKey, normalizeDescription, toCents } from './normalize.js';
+import { dedupeKey, descriptionsSimilar, normalizeDescription, toCents } from './normalize.js';
 import { addDays } from './time.js';
 import {
   TellerError,
@@ -43,24 +43,6 @@ interface StoredPending {
   amount_cents: number;
   date: string;
   normalized_description: string;
-}
-
-/**
- * Pending and posted versions of the same charge often differ in wording and by
- * a few days, and some institutions issue a brand new id on settlement. This
- * decides whether two rows are the same real-world charge.
- */
-function descriptionsSimilar(a: string, b: string): boolean {
-  if (a === b) return true;
-  if (a.length >= 10 && b.length >= 10 && (a.startsWith(b.slice(0, 10)) || b.startsWith(a.slice(0, 10)))) {
-    return true;
-  }
-  const tokensA = new Set(a.split(' ').filter((t) => t.length > 2));
-  const tokensB = new Set(b.split(' ').filter((t) => t.length > 2));
-  if (tokensA.size === 0 || tokensB.size === 0) return false;
-  let shared = 0;
-  for (const token of tokensA) if (tokensB.has(token)) shared += 1;
-  return shared / Math.min(tokensA.size, tokensB.size) >= 0.5;
 }
 
 function daysApart(a: string, b: string): number {

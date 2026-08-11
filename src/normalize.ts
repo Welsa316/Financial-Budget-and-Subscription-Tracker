@@ -39,3 +39,21 @@ export function toCents(amount: string | number): number {
 export function dedupeKey(date: string, amountCents: number, description: string): string {
   return `${date}|${amountCents}|${normalizeDescription(description)}`;
 }
+
+/**
+ * Whether two normalized descriptions refer to the same merchant. Used both
+ * when a pending charge settles under new wording and when matching a refund
+ * back to the purchase it reverses.
+ */
+export function descriptionsSimilar(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (a.length >= 10 && b.length >= 10 && (a.startsWith(b.slice(0, 10)) || b.startsWith(a.slice(0, 10)))) {
+    return true;
+  }
+  const tokensA = new Set(a.split(' ').filter((token) => token.length > 2));
+  const tokensB = new Set(b.split(' ').filter((token) => token.length > 2));
+  if (tokensA.size === 0 || tokensB.size === 0) return false;
+  let shared = 0;
+  for (const token of tokensA) if (tokensB.has(token)) shared += 1;
+  return shared / Math.min(tokensA.size, tokensB.size) >= 0.5;
+}
