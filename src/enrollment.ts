@@ -1,5 +1,6 @@
+import { randomBytes } from 'node:crypto';
 import { deleteSetting, getSetting, setSetting } from './db.js';
-import { decrypt, encrypt } from './crypto.js';
+import { decrypt, encrypt, safeEqual } from './crypto.js';
 
 /**
  * Storage for the Teller enrollment. The access token is a bearer credential to
@@ -63,6 +64,34 @@ export function getDisconnection(): { at: string; reason: string } | null {
   const at = getSetting(DISCONNECTED_KEY);
   if (!at) return null;
   return { at, reason: getSetting('teller_disconnect_reason') ?? 'Unknown' };
+}
+
+const NONCE_KEY = 'teller_connect_nonce';
+const NONCE_TTL_MS = 15 * 60 * 1000;
+
+/**
+ * Teller Connect accepts a server-generated nonce. Requiring it back on the
+ * enrollment callback means a token captured elsewhere cannot be replayed into
+ * this app's storage.
+ */
+export function createConnectNonce(): string {
+  const nonce = randomBytes(24).toString('base64url');
+  setSetting(NONCE_KEY, JSON.stringify({ nonce, createdAt: Date.now() }));
+  return nonce;
+}
+
+export function consumeConnectNonce(candidate: unknown): boolean {
+  const stored = getSetting(NONCE_KEY);
+  if (!stored || typeof candidate !== 'string' || candidate.length === 0) return false;
+  deleteSetting(NONCE_KEY); // single use, whatever the outcome
+
+  try {
+    const { nonce, createdAt } = JSON.parse(stored) as { nonce: string; createdAt: number };
+    if (Date.now() - createdAt > NONCE_TTL_MS) return false;
+    return safeEqual(nonce, candidate);
+  } catch {
+    return false;
+  }
 }
 
 export function clearEnrollment(): void {

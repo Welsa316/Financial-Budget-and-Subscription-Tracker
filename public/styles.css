@@ -186,6 +186,15 @@ a {
   margin-bottom: 1rem;
 }
 
+/* Error codes and env var names have no break opportunities and will overflow
+   their box unless told otherwise. */
+.card__hint,
+.card__error,
+.issues code,
+.issues span {
+  overflow-wrap: anywhere;
+}
+
 .card__hint {
   margin-top: 0.7rem;
   font-size: 0.875rem;
@@ -200,6 +209,130 @@ a {
   border-radius: var(--radius-sm);
   color: var(--negative);
   font-size: 0.9375rem;
+}
+
+.card--alert {
+  background: var(--negative-soft);
+  border-color: #edc8bd;
+}
+
+.card--alert .card__title {
+  color: var(--negative);
+}
+
+/* ---------- Headline figures ---------- */
+
+.figure {
+  font-size: var(--step-3);
+  font-weight: 660;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  margin-bottom: 0.35rem;
+}
+
+/* Dimmed whenever the number is not known to be current. */
+.figure--stale {
+  color: var(--ink-3);
+}
+
+.figure__note {
+  font-size: 0.875rem;
+  color: var(--ink-2);
+  margin-bottom: 0.6rem;
+}
+
+/* ---------- Transactions ---------- */
+
+.txns {
+  display: flex;
+  flex-direction: column;
+}
+
+.txn {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.85rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.txn:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.txn__main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.txn__desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.txn__meta {
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.txn__amount {
+  font-weight: 580;
+  white-space: nowrap;
+}
+
+.txn__amount--in {
+  color: var(--positive);
+}
+
+.tag {
+  display: inline-block;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 620;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tag--pending {
+  background: var(--essential-soft);
+  color: var(--essential);
+}
+
+/* ---------- Connect ---------- */
+
+.auth__card--wide {
+  max-width: 26rem;
+}
+
+.auth__card--wide .btn + .btn,
+.auth__card--wide .btn + a.btn {
+  margin-top: 0.5rem;
+}
+
+.connect__status {
+  min-height: 1.25rem;
+  margin: 1rem 0 0.25rem;
+  font-size: 0.9375rem;
+  color: var(--ink-2);
+}
+
+.connect__status--error {
+  color: var(--negative);
+}
+
+.connect__status--ok {
+  color: var(--positive);
 }
 
 /* ---------- Stats / definition rows ---------- */

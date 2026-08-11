@@ -15,7 +15,7 @@ bundler, no external database.
 | Step | State |
 |---|---|
 | 1. Scaffold, auth, deployable shell | **Done** |
-| 2. Teller mTLS client, Connect enrollment, sync + cron | Not started |
+| 2. Teller mTLS client, Connect enrollment, sync + cron | **Done** |
 | 3. Classification rules and Friday paycheck engine | Not started |
 | 4. Dashboard UI and manual overrides | Not started |
 | 5. PWA (manifest, service worker, icons) | Not started |
@@ -187,11 +187,62 @@ sync scheduler assumes it is the only one running.
 
 ---
 
+## Syncing
+
+Balances and transactions are pulled twice a day, at **7:00 and 19:00
+America/Chicago**, by a scheduler inside the service (no external cron). The
+dashboard also has a **Sync now** button, which starts a background sync and
+polls until it finishes.
+
+Details worth knowing:
+
+- **Pending transactions are first class.** They are stored with
+  `status = 'pending'`, tagged in the UI, and counted in spending. The headline
+  balance is the **available** balance, which is already net of pending
+  activity; the posted balance is shown underneath with the difference labelled
+  "still pending".
+- **Settlement is reconciled.** When a pending charge posts, some institutions
+  keep the transaction id and some issue a new one. Both are handled: same-id
+  settlement updates in place, and a new id is matched back to the pending row
+  by amount, a ±5 day window, and description similarity. The pending row is
+  then removed and the posted row records `settled_from`. Without this, every
+  settling charge would double-count.
+- **Manual reclassifications follow the charge** across a settlement id change.
+- **A pending charge that the bank stops reporting** is kept for 14 days, then
+  dropped as an abandoned authorisation. Leaving it would inflate spending
+  forever.
+- **First sync backfills** as much history as the institution exposes, paging
+  backward. Later syncs only pull the recent window.
+- **A failed sync never destroys cached data.** The dashboard keeps showing the
+  last good numbers, with the sync timestamp turning red and an explicit
+  "not current" warning.
+- **Disconnection is distinguished from an outage.** A revoked token or an
+  `enrollment.disconnected.*` error puts the dashboard into a "reconnect your
+  bank" state. A 502 from the institution does not — it is a transient failure
+  and is retried with backoff.
+
+---
+
 ## Security notes
 
 - The Teller access token is encrypted with AES-256-GCM before it touches
   SQLite, and is only ever read server-side. It is never rendered into a page,
-  returned by an endpoint, or logged. All Teller calls happen on the server.
+  returned by an endpoint, or logged. All Teller **API calls** happen on the
+  server.
+
+- **One unavoidable exception, by Teller's design:** Teller Connect hands the
+  access token to the *browser* in its `onSuccess` callback. There is no
+  server-side exchange step — unlike Plaid, Teller has no "public token" you
+  swap for a real one. So at enrollment, and only then, the token exists in the
+  page's JavaScript for a moment before being POSTed to the server over HTTPS
+  and encrypted at rest. It is never sent back to the browser afterwards.
+
+  Two things limit this. First, Teller's own documentation states that "access
+  tokens are useless without a client certificate belonging to the application
+  the user consented giving access to" — the mTLS certificate never leaves the
+  server, so a leaked token alone cannot read your accounts. Second, enrollment
+  is guarded by a single-use, 15-minute, server-generated `nonce`, so a token
+  captured elsewhere cannot be replayed into this app's storage.
 - The session cookie is `httpOnly`, `SameSite=Lax`, `Secure` in production, and
   holds a random 256-bit token. Only the SHA-256 of that token is stored, so a
   database leak does not hand over a live session.

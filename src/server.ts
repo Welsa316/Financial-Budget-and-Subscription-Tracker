@@ -6,7 +6,9 @@ import { config, ROOT, validateConfig } from './config.js';
 import { closeDb, getDb } from './db.js';
 import { forceHttps, purgeExpiredSessions, requireAuth, sameOriginOnly } from './auth.js';
 import { router } from './routes.js';
+import { startScheduler, stopScheduler } from './sync.js';
 import { errorPage } from './views.js';
+import { tellerConfigured } from './config.js';
 
 function boot(): void {
   const problems = validateConfig();
@@ -107,6 +109,11 @@ function boot(): void {
   const server = app.listen(config.port, () => {
     console.log(`[web] listening on :${config.port} (${config.nodeEnv})`);
     console.log(`[web] timezone ${config.timezone}`);
+    if (tellerConfigured()) {
+      startScheduler();
+    } else {
+      console.log('[sync] scheduler not started — Teller credentials missing');
+    }
   });
 
   // Without this a bind failure is an unhandled 'error' event that kills the
@@ -122,6 +129,7 @@ function boot(): void {
 
   const shutdown = (signal: string): void => {
     console.log(`[web] ${signal} received, shutting down`);
+    stopScheduler();
     server.close(() => {
       closeDb();
       process.exit(0);
