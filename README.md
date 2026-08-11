@@ -17,13 +17,10 @@ bundler, no external database.
 | 1. Scaffold, auth, deployable shell | **Done** |
 | 2. SimpleFIN client, token claim, sync + cron | **Done** |
 | 3. Classification rules and Friday paycheck engine | **Done** |
-| 4. Dashboard UI and manual overrides | Not started |
-| 5. PWA (manifest, service worker, icons) | Not started |
-| 6. Chase statement import CLI | Not started |
-| 7. Failure-mode notes | Not started |
-
-Anything below marked _(step N)_ describes setup you only need when that step
-lands.
+| 4. Dashboard UI and manual overrides | **Done** |
+| 5. PWA (manifest, service worker, icons) | **Done** |
+| 6. Chase statement import CLI | **Done** |
+| 7. Failure-mode notes | **Done** |
 
 ---
 
@@ -32,7 +29,7 @@ lands.
 - Node 22 or newer (developed on 24)
 - A SimpleFIN Bridge subscription — $15/year
 - A Railway account — the $5 Hobby plan is enough
-- `poppler` for the statement importer _(step 6)_: `brew install poppler`
+- `poppler` for the statement importer: `brew install poppler`
 
 ---
 
@@ -103,7 +100,7 @@ printed.
 
 ---
 
-## SimpleFIN setup _(step 2)_
+## SimpleFIN setup
 
 Teller, the original provider, withdrew its API in July 2026. This app uses
 [SimpleFIN Bridge](https://beta-bridge.simplefin.org) instead: $15/year or
@@ -257,6 +254,126 @@ spent out of the account, so the shortfall carries.
 
 ---
 
+## Using the dashboard
+
+One page, top to bottom:
+
+1. **Friday paycheck** — the number the app exists for, with the arithmetic
+   spelled out beneath it and the days until Friday. Green when there is
+   something to pay yourself, red when there is not. Expand "Previous 4 weeks"
+   to compare.
+2. **Available to spend** — the available balance leads, the posted balance sits
+   underneath, and the difference is labelled "still pending".
+3. **Next up** — the soonest projected charge.
+4. **Monthly commitments** — essentials first and marked, subscriptions below,
+   each with what it costs per month, when it last landed, and when it is next
+   expected. Essentials carry an explicit *paid this month* or *not paid yet*,
+   because those have no fixed billing date and are the ones that get missed.
+5. **Last 30 days** — one total split into subs-and-bills versus everything
+   else, with per-category rows under each.
+6. **Recent transactions** — every row shows its classification. Tap one to see
+   which rule decided it, the raw bank description, and four buttons to
+   reclassify it as bill, fun, income, or ignored.
+
+**Correcting a classification** takes one tap. The override is stored
+separately from the transaction, so a re-sync never overwrites it, and it
+follows the charge if the bank re-issues it under a new id when it settles. A
+corrected row is tagged *Manual*, and "Clear" puts it back under the rules.
+
+**Add to Home Screen** installs it: standalone, no browser chrome, real icon.
+It caches the last dashboard you loaded, so opening it with no signal shows
+that page immediately behind a banner naming when the snapshot was taken.
+Signing out deletes the cached copy.
+
+---
+
+## Importing statements
+
+```bash
+brew install poppler
+```
+
+Put the PDFs somewhere outside the repo (`statements/` is gitignored), then:
+
+```bash
+npm run build && node dist/scripts/import-statements.js ./statements --dry-run
+```
+
+That prints what each file yields without writing anything. When it looks
+right, load it into the deployed app:
+
+```bash
+node dist/scripts/import-statements.js ./statements --url https://your-app.up.railway.app
+```
+
+It asks for your dashboard password (or reads `DASHBOARD_PASSWORD`), parses
+locally, and posts the rows. Drop `--url` to write to a local database instead.
+
+Running it twice is safe. Rows are matched against everything already stored by
+date, amount and description similarity, so re-importing the same statement
+inserts nothing, and a charge that also arrives through SimpleFIN replaces the
+imported copy rather than double-counting.
+
+`--show-skipped` prints lines that looked like transactions but were not
+parsed, which is the first thing to check if a total looks wrong.
+
+---
+
+## What breaks first, and how you would notice
+
+Ordered by how likely it is to actually happen.
+
+**The SimpleFIN subscription lapses.** $15/year, and if it expires the API
+returns `402` and stops returning data. The dashboard says *SimpleFIN
+subscription lapsed* and states plainly that this is a billing problem rather
+than a bank problem. Balances stay visible but greyed, and the sync timestamp
+turns red. Fix: renew, then paste a fresh setup token at `/connect`.
+
+**Chase makes you re-authenticate.** Banks periodically invalidate a
+connection, often after a password change or an MFA prompt. SimpleFIN reports
+this in the response's `errlist` *with an HTTP 200*, so a successful response is
+not proof the data is current — those warnings are surfaced and put the
+dashboard into a "reconnect" state. Fix: new setup token at `/connect`. Your
+history is kept.
+
+**The scheduler stops.** The cron lives inside the service, so if the process
+dies and Railway restarts it, the schedule restarts too and at most one sync is
+missed. If it stops firing entirely, the dashboard shows *Sync is overdue* once
+the last successful sync is more than 14 hours old, and the header timestamp
+turns red. Fix: hit **Sync now**; if that works, the scheduler is the problem,
+not the connection.
+
+**The volume is missing or the mount path changes.** This is the quiet one.
+Without `DB_PATH=/data/finance.db` and a volume at `/data`, SQLite writes to the
+container's ephemeral disk, and every deploy silently starts from an empty
+database. Nothing errors. You would notice the transaction count resetting and
+the commitments all reading *never seen*. Check the volume before assuming
+anything else is wrong.
+
+**A classification rule stops matching.** Chase occasionally rewords a
+description, and a subscription then reads as discretionary — which quietly
+inflates your fun-money spending and shrinks the allowance. You would notice a
+commitment showing *Not paid yet* when you know you paid it, or a familiar
+merchant tagged **Fun** in Recent transactions. Fix: correct it inline, or edit
+`config/rules.json` if it will keep happening. Every row shows which rule fired,
+so this is visible rather than mysterious.
+
+**SimpleFIN changes their API or shuts down.** Teller did exactly this in July
+2026, mid-build. The provider is one module (`src/simplefin.ts`) behind a small
+interface; the sync engine, classification, paycheck maths and UI are provider
+agnostic. A replacement is roughly a day of work, not a rewrite.
+
+**You hit the request quota.** Roughly 24 requests a day. Two scheduled syncs
+plus a first-run backfill of four is well inside it, but hammering **Sync now**
+could reach it. SimpleFIN reports it as a warning; repeated abuse can disable
+the token.
+
+**The encryption key changes.** Rotating `ENCRYPTION_KEY` makes the stored
+SimpleFIN credential undecryptable. The app treats that as disconnected rather
+than crashing, so you get the reconnect prompt. Fix: paste a new setup token.
+
+---
+
 ## Security notes
 
 - The SimpleFIN access URL carries HTTP Basic credentials for the full account
@@ -279,4 +396,7 @@ spent out of the account, so the shortfall carries.
   password is also refused while the limit is active.
 - Content-Security-Policy is `default-src 'self'` with no inline scripts or
   styles, `frame-src 'none'`, and no external origins allowed at all.
+- The service worker caches the rendered dashboard so it works offline, which
+  means balances live in Cache Storage. Signing out deletes that cache, and
+  nothing under `/api/` is ever cached.
 - `data/`, `.env` and `statements/` are gitignored.
