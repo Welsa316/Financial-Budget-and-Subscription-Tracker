@@ -114,6 +114,12 @@ function statusFor(
   let nextDueDate: string | null = null;
   if (latest) {
     nextDueDate = projectNextDue(latest.date, cadence, billingDay);
+    // A charge that posted late, or a gap in the data, can put the first
+    // projection in the past. "Next due" must always be ahead of today, or the
+    // item silently drops out of Next up.
+    for (let guard = 0; nextDueDate < today && guard < 36; guard++) {
+      nextDueDate = projectNextDue(nextDueDate, cadence, billingDay);
+    }
     // The debt repayment is nominally due on a fixed day; snap the projection
     // to it so the date reads the way it is actually thought about.
     if (nominalDayOfMonth) {
