@@ -42,6 +42,18 @@ export function currentPayWeek(today: string): PayWeek {
   return payWeekEndingBefore(nextFriday(today));
 }
 
+/**
+ * The pay week a given transaction falls in.
+ *
+ * Distinct from currentPayWeek, which has "today" semantics: on a Friday that
+ * returns the week that just ENDED. Applied to a transaction date it puts a
+ * Friday-dated charge in the week before the one it is actually counted in,
+ * which sent refunds of Friday purchases to the wrong week entirely.
+ */
+export function payWeekContaining(date: string): PayWeek {
+  return payWeekEndingBefore(nextFriday(addDays(date, 1)));
+}
+
 export function previousPayWeeks(week: PayWeek, count: number): PayWeek[] {
   const weeks: PayWeek[] = [];
   for (let i = 1; i <= count; i++) {
@@ -111,7 +123,10 @@ export function resolveRefunds(
     });
 
     // Prefer an exact-amount reversal, then the most recent candidate.
-    const exact = candidates.find((charge) => charge.remaining === credit.amountCents);
+    // findLast, not find: candidates are oldest-first, and searching forward
+    // sent a refund to the earliest same-amount charge in the 90-day window
+    // instead of the one it actually reverses.
+    const exact = candidates.findLast((charge) => charge.remaining === credit.amountCents);
     const chosen = exact ?? candidates[candidates.length - 1];
 
     if (!chosen) {
@@ -130,7 +145,7 @@ export function resolveRefunds(
     resolutions.set(credit.id, {
       creditId: credit.id,
       matchedChargeId: chosen.txn.id,
-      attributedWeekStart: currentPayWeek(chosen.txn.date).start,
+      attributedWeekStart: payWeekContaining(chosen.txn.date).start,
       appliedCents: applied,
     });
   }
@@ -208,7 +223,9 @@ export function summariseWeek(
     }
   }
 
-  const spentNetCents = spentGrossCents - refundedCents;
+  // Floored: no attribution bug may ever manufacture allowance out of
+  // negative spending.
+  const spentNetCents = Math.max(0, spentGrossCents - refundedCents);
   const allowanceCents = Math.round(incomeCents * rate) - spentNetCents;
 
   return {

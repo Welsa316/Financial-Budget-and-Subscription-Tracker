@@ -268,3 +268,42 @@ describe('income baseline', () => {
     assert.equal(baseline.floorCents, 90000, 'a week off is not an income floor of $0');
   });
 });
+
+describe('refund attribution regressions', () => {
+  it('attributes a refund of a FRIDAY purchase to the week containing it', () => {
+    // currentPayWeek has "today" semantics: on a Friday it returns the week
+    // that just ended. Used on a transaction date it sent the refund a week
+    // early, inflating one week's allowance and driving the other negative.
+    const txns = [
+      make('DOORDASH INC PAYMENT', '500.00', '2026-08-14'),
+      make('TARGET STORE 0991', '-200.00', '2026-08-14', { merchant: 'Target' }), // a Friday
+      make('PURCHASE RETURN TARGET 0991', '200.00', '2026-08-17', { merchant: 'Target' }),
+    ];
+    const refunds = resolveRefunds(txns, rules);
+    const thisWeek = summariseWeek(payWeekEndingBefore('2026-08-21'), txns, refunds, rules); // Aug 14-20
+    const lastWeek = summariseWeek(payWeekEndingBefore('2026-08-14'), txns, refunds, rules); // Aug 7-13
+
+    assert.equal(thisWeek.spentNetCents, 0, 'the purchase and its refund cancel in the same week');
+    assert.equal(lastWeek.refundedCents, 0, 'the previous week must not receive the refund');
+    assert.equal(lastWeek.spentNetCents, 0);
+  });
+
+  it('matches a refund to the most recent identical charge, not the oldest', () => {
+    const txns = [
+      make('TARGET STORE 0991', '-50.00', '2026-07-06', { merchant: 'Target' }),
+      make('TARGET STORE 0991', '-50.00', '2026-08-10', { merchant: 'Target' }),
+      make('PURCHASE RETURN TARGET 0991', '50.00', '2026-08-11', { merchant: 'Target' }),
+    ];
+    const resolution = resolveRefunds(txns, rules).get(txns[2]!.id);
+    assert.equal(resolution?.matchedChargeId, txns[1]!.id, 'the August charge, not the July one');
+  });
+
+  it('never lets refunds drive a week to negative spending', () => {
+    const txns = [
+      make('TARGET STORE 0991', '-30.00', '2026-08-03', { merchant: 'Target' }),
+      make('PURCHASE RETURN TARGET 0991', '30.00', '2026-08-10', { merchant: 'Target' }),
+    ];
+    const week = summariseWeek(WEEK, txns, resolveRefunds(txns, rules), rules);
+    assert.ok(week.spentNetCents >= 0, `spending floored at zero, got ${week.spentNetCents}`);
+  });
+});

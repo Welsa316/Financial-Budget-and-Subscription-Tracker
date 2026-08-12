@@ -133,6 +133,15 @@ function send(
         res.on('end', () =>
           resolvePromise({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }),
         );
+        // Without these the promise never settles when the connection dies
+        // after the headers arrive. runSync's finally never runs, the running
+        // flag latches true, and every later sync is skipped until restart.
+        res.on('error', (error: Error) => {
+          rejectPromise(new SimpleFinError(0, `Response failed: ${error.message}`, 'transient'));
+        });
+        res.on('aborted', () => {
+          rejectPromise(new SimpleFinError(0, 'SimpleFIN closed the connection early', 'transient'));
+        });
       },
     );
 

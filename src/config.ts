@@ -114,6 +114,18 @@ export function validateConfig(): ConfigProblem[] {
     });
   }
 
+  // The single most destructive misconfiguration: without a volume-backed
+  // DB_PATH the database lives on the container's ephemeral disk and every
+  // deploy silently starts from empty, with no error anywhere.
+  if (config.isProduction && !process.env.DB_PATH) {
+    problems.push({
+      key: 'DB_PATH',
+      message:
+        'Not set. In production the database MUST live on a mounted volume, or every deploy wipes all history. Set DB_PATH=/data/finance.db and attach a volume at /data.',
+      fatal: true,
+    });
+  }
+
   if (!config.encryptionKey) {
     problems.push({
       key: 'ENCRYPTION_KEY',
