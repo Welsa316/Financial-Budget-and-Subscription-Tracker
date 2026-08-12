@@ -351,3 +351,48 @@ describe('rows', () => {
     assert.ok(head(html, 'Recent transactions'), 'its group survives for the others');
   });
 });
+
+/**
+ * A flat run of rows makes you read every date to find where one day ends and
+ * the next begins. Both reference apps break the list by day and put the day's
+ * total on the heading.
+ */
+describe('transactions by day', () => {
+  const txns = [
+    make('Card Purchase 08/12 Cafe Du Monde', '-4.00', '2026-08-12'),
+    make('Card Purchase 08/12 Circle K', '-6.00', '2026-08-12'),
+    make('Card Purchase 08/11 Rouses Market', '-96.42', '2026-08-11'),
+    make('DOORDASH INC PAYMENT', '900.00', '2026-08-05'),
+  ];
+
+  const dayHeads = (html: string): string[] =>
+    [...html.matchAll(/<h3 class="day__head">([\s\S]*?)<\/h3>/g)].map((m) =>
+      m[1]!.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+    );
+
+  it('names today and yesterday rather than dating them', () => {
+    const heads = dayHeads(render({}, txns));
+    assert.ok(heads[0]?.startsWith('Today'), heads[0]);
+    assert.ok(heads[1]?.startsWith('Yesterday'), heads[1]);
+    assert.ok(heads[2]?.startsWith('Aug 5'), heads[2]);
+  });
+
+  it('totals the day so nothing has to be added up by hand', () => {
+    assert.match(dayHeads(render({}, txns))[0]!, /\$10\.00/, 'the two charges today');
+  });
+
+  it('leaves the total off a day that only took money in', () => {
+    const heads = dayHeads(render({}, txns));
+    assert.equal(heads[2], 'Aug 5', 'no outflow, so no figure');
+  });
+
+  it('puts the newest day first', () => {
+    const heads = dayHeads(render({}, txns));
+    assert.deepEqual(heads.length, 3);
+    assert.ok(heads[0]!.includes('Today'));
+  });
+
+  it('does not day-group the by-place view, which groups by merchant', () => {
+    assert.equal(dayHeads(render({ recentSort: 'place' }, txns)).length, 0);
+  });
+});

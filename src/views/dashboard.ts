@@ -1,5 +1,5 @@
 import { esc, money, moneyAbs, moneyParts } from '../format.js';
-import { formatStamp, formatDayMonth, relativeDays } from '../time.js';
+import { addDays, formatStamp, formatDayMonth, relativeDays } from '../time.js';
 import type { Classified } from '../classify.js';
 import type { CommitmentStatus } from '../commitments.js';
 import {
@@ -543,7 +543,7 @@ function overrideForm(transaction: Classified, from: 'txn' | 'review'): string {
                 </form>`;
 }
 
-function transactionRow(transaction: Classified): string {
+function transactionRow(transaction: Classified, showDate = true): string {
   // The id is the anchor target for /override's redirect and for the "already
   // spent" drill-down, and it sits on the body — the part a closed <details>
   // hides — rather than on the li or the summary.
@@ -559,7 +559,7 @@ function transactionRow(transaction: Classified): string {
                 <span class="txn__main">
                   <span class="txn__desc">${esc(transaction.merchant ?? transaction.description)}</span>
                   <span class="txn__meta">
-                    ${esc(formatDayMonth(transaction.date))}
+                    ${showDate ? esc(formatDayMonth(transaction.date)) : ''}
                     <span class="tag tag--${esc(transaction.classification)}">${esc(
                       CLASS_LABEL[transaction.classification] ?? transaction.classification,
                     )}</span>
@@ -719,10 +719,50 @@ function placeGroup(group: PlaceGroup): string {
                 }${esc(moneyAbs(net))}</span>
               </summary>
               <ul class="txns" id="place-${esc(placeSlug(group.label))}">
-                ${group.transactions.map(transactionRow).join('\n                ')}
+                ${group.transactions.map((row) => transactionRow(row)).join('\n                ')}
               </ul>
             </details>
           </li>`;
+}
+
+/**
+ * The list, broken by day.
+ *
+ * A flat run of rows makes you read every date to find where one day ends and
+ * the next begins; a heading does it for you, and the day's total answers "what
+ * did today cost" without adding anything up. Both reference apps do this and
+ * it is the one structural idea they agree on.
+ */
+function byDay(transactions: Classified[], today: string): string {
+  const days = new Map<string, Classified[]>();
+  for (const transaction of transactions) {
+    const list = days.get(transaction.date) ?? [];
+    list.push(transaction);
+    days.set(transaction.date, list);
+  }
+
+  const yesterday = addDays(today, -1);
+
+  return [...days.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([date, rows]) => {
+      const out = rows.reduce(
+        (sum, t) => (t.amountCents < 0 ? sum + Math.abs(t.amountCents) : sum),
+        0,
+      );
+      const name = date === today ? 'Today' : date === yesterday ? 'Yesterday' : formatDayMonth(date);
+
+      return `<div class="day">
+            <h3 class="day__head">
+              <span>${esc(name)}</span>
+              <span class="day__total num">${out > 0 ? esc(moneyAbs(out)) : ''}</span>
+            </h3>
+            <ul class="txns">
+              ${rows.map((row) => transactionRow(row, false)).join('\n              ')}
+            </ul>
+          </div>`;
+    })
+    .join('\n          ');
 }
 
 function transactionsDetail(data: DashboardViewData): string {
@@ -743,9 +783,7 @@ function transactionsDetail(data: DashboardViewData): string {
     ? `<ul class="places">
           ${groupByPlace(data.recent).map(placeGroup).join('\n          ')}
         </ul>`
-    : `<ul class="txns">
-          ${data.recent.map(transactionRow).join('\n          ')}
-        </ul>`;
+    : byDay(data.recent, data.today);
 
   return `        ${toggle}
         <p class="card__lede">${
