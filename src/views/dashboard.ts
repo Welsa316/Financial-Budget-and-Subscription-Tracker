@@ -80,7 +80,12 @@ function spentBreakdown(current: WeekSummary, visibleIds: Set<string>): string {
 
 function paycheckSection(data: DashboardViewData): string {
   const { current, daysUntilPayday } = data.paycheck;
-  const visibleIds = new Set(data.recent.map((transaction) => transaction.id));
+  // A charge is only linkable if the card holding its anchor is actually
+  // rendered. Hiding Recent transactions used to leave every one of these
+  // pointing at an element that no longer existed.
+  const visibleIds = data.layout.hidden.has('transactions')
+    ? new Set<string>()
+    : new Set(data.recent.map((transaction) => transaction.id));
   const negative = current.allowanceCents < 0;
   const ratePercent = Math.round(current.rate * 100);
   const share = Math.round(current.incomeCents * current.rate);
@@ -382,7 +387,7 @@ function commitmentsSection(data: DashboardViewData): string {
  * Bars are scaled against the largest row in their own group, not the grand
  * total. Against the total every row is a stub and the comparison is lost.
  */
-function sliceRows(slices: SpendingSlice[]): string {
+function sliceRows(slices: SpendingSlice[], linkPlaces: boolean): string {
   if (slices.length === 0) return '<li class="slice slice--empty">Nothing in this window.</li>';
   const largest = slices.reduce((max, slice) => Math.max(max, slice.cents), 0);
 
@@ -400,7 +405,7 @@ function sliceRows(slices: SpendingSlice[]): string {
 
       return `<li class="slice">
               ${
-                rolled
+                rolled || !linkPlaces
                   ? inner
                   : `<a class="slice__link" href="/?sort=place#place-${esc(
                       placeSlug(slice.label),
@@ -413,6 +418,9 @@ function sliceRows(slices: SpendingSlice[]): string {
 
 function spendingSection(data: DashboardViewData): string {
   const s = data.spending;
+  // Same reason: the by-place view renders the anchors these bars aim at, and
+  // it is part of the transaction list.
+  const linkPlaces = !data.layout.hidden.has('transactions');
   return `      <section class="card">
         <h2 class="card__title">Last ${s.days} days</h2>
         <p class="figure figure--sm">${esc(moneyAbs(s.totalCents))}</p>
@@ -434,12 +442,12 @@ function spendingSection(data: DashboardViewData): string {
 
         <h3 class="subhead">Subs &amp; bills</h3>
         <ul class="slices">
-            ${sliceRows(s.billCategories)}
+            ${sliceRows(s.billCategories, linkPlaces)}
         </ul>
 
         <h3 class="subhead">Everything else</h3>
         <ul class="slices">
-            ${sliceRows(s.discretionaryCategories)}
+            ${sliceRows(s.discretionaryCategories, linkPlaces)}
         </ul>
       </section>`;
 }
@@ -453,8 +461,17 @@ const CLASS_LABEL: Record<string, string> = {
   ignore: 'Ignored',
 };
 
-/** Shared, so a charge is reclassified the same way wherever you find it. */
-function overrideForm(transaction: Classified): string {
+/**
+ * Shared, so a charge is reclassified the same way wherever you find it.
+ *
+ * `from` names the card this was submitted from. /override sends you back to
+ * that card rather than always to the transaction list, which matters because
+ * the transaction list can be hidden — and because being bounced to a
+ * different card than the one you were reading is disorienting even when it
+ * does exist. A fixed enum rather than a caller-supplied anchor, so nothing
+ * user-controlled reaches the redirect.
+ */
+function overrideForm(transaction: Classified, from: 'txn' | 'review'): string {
   const options = (['bill', 'discretionary', 'income', 'ignore'] as const)
     .map(
       (value) =>
@@ -466,6 +483,7 @@ function overrideForm(transaction: Classified): string {
 
   return `<form method="post" action="/override" class="txn__actions">
                   <input type="hidden" name="id" value="${esc(transaction.id)}" />
+                  <input type="hidden" name="from" value="${from}" />
                   ${options}
                   ${
                     transaction.overridden
@@ -506,7 +524,7 @@ function transactionRow(transaction: Classified): string {
               <div class="txn__body" id="txn-${esc(transaction.id)}">
                 <p class="txn__why">${esc(transaction.reason)}</p>
                 <p class="txn__raw">${esc(transaction.description)}</p>
-                ${overrideForm(transaction)}
+                ${overrideForm(transaction, 'txn')}
               </div>
             </details>
           </li>`;
@@ -584,7 +602,7 @@ function reviewSection(data: DashboardViewData): string {
               <div class="txn__body" id="review-${esc(item.transaction.id)}">
                 <p class="txn__why">${esc(item.detail)}</p>
                 <p class="txn__raw">${esc(item.transaction.description)}</p>
-                ${overrideForm(item.transaction)}
+                ${overrideForm(item.transaction, 'review')}
               </div>
             </details>
           </li>`,

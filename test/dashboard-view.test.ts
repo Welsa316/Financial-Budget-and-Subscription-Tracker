@@ -5,7 +5,7 @@ import { buildPaycheckView } from '../src/budget.js';
 import { buildCommitments, nextUp, totalCommitments, upcoming } from '../src/commitments.js';
 import { buildSpending, monthlyShape } from '../src/dashboard.js';
 import { dashboardBody, type DashboardViewData } from '../src/views/dashboard.js';
-import { defaultLayout } from '../src/layout.js';
+import { CARD_IDS, defaultLayout, type CardId } from '../src/layout.js';
 import { getRules } from '../src/rules.js';
 import { normalizeDescription, toCents } from '../src/normalize.js';
 
@@ -226,5 +226,62 @@ describe('the spending bars open the place they name', () => {
     const html = render({}, [...txns, ...many]);
     assert.match(html, /more<\/span>/, 'the roll-up row exists');
     assert.doesNotMatch(html, /href="[^"]*#place-\d+-more"/);
+  });
+});
+
+/**
+ * Cards can be hidden, and two other cards link into the transaction list.
+ * Nothing in the earlier tests would have caught the links going dead, because
+ * they only ever rendered the default layout.
+ */
+describe('links survive a card being hidden', () => {
+  const txns = [
+    make('DOORDASH INC PAYMENT', '900.00', '2026-08-08'),
+    make('Card Purchase 08/09 Circle K # 07238 Kenner LA', '-22.10', '2026-08-09', {
+      merchant: 'Circle K',
+    }),
+    make('Card Purchase 08/10 Rouses Market Kenner LA', '-96.42', '2026-08-10'),
+  ];
+
+  const hiding = (...ids: CardId[]): Partial<DashboardViewData> => ({
+    layout: { order: [...CARD_IDS], hidden: new Set(ids) },
+  });
+
+  /** Every same-page fragment link must point at an id the page rendered. */
+  const deadLinks = (html: string): string[] => {
+    const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]!));
+    return [...html.matchAll(/href="(#[^"]+)"/g)]
+      .map((m) => m[1]!)
+      .filter((href) => !ids.has(decodeURIComponent(href.slice(1))));
+  };
+
+  it('has no dead links with every card showing', () => {
+    assert.deepEqual(deadLinks(render({}, txns)), []);
+  });
+
+  it('stops linking the spent breakdown when the transaction list is hidden', () => {
+    const html = render(hiding('transactions'), txns);
+    assert.deepEqual(deadLinks(html), [], 'no anchor left pointing at nothing');
+    assert.match(html, /spent__link--plain/, 'the charges are still listed');
+    assert.match(html, /Circle K/, 'and still readable');
+  });
+
+  it('stops linking the spending bars when the by-place view is hidden', () => {
+    const html = render(hiding('transactions'), txns);
+    assert.doesNotMatch(html, /href="\/\?sort=place#/, 'that view renders no anchors when hidden');
+  });
+
+  it('still links both when the transaction list is showing', () => {
+    const html = render(hiding('spending'), txns);
+    assert.match(html, /href="#txn-/, 'the spent breakdown still links');
+  });
+
+  it('tells /override which card to send you back to', () => {
+    const html = render({}, txns);
+    assert.match(html, /<input type="hidden" name="from" value="txn" \/>/);
+    assert.match(
+      render({ review: [{ transaction: txns[1]!, reason: 'first-time', detail: 'x' }] }, txns),
+      /<input type="hidden" name="from" value="review" \/>/,
+    );
   });
 });

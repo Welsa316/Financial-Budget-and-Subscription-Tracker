@@ -310,8 +310,14 @@ router.post('/override', (req: Request, res: Response) => {
     return;
   }
 
-  // Back to the row that was just changed.
-  res.redirect(`/#txn-${encodeURIComponent(id)}`);
+  // Back to the row that was just changed, on the card it was changed from.
+  // Always sending you to the transaction list was wrong twice over: that card
+  // can be hidden, in which case the anchor does not exist at all, and being
+  // bounced there from the review queue loses your place even when it does.
+  // `from` is checked against two literals, so nothing user-supplied reaches
+  // the redirect.
+  const from = req.body?.from === 'review' ? 'review' : 'txn';
+  res.redirect(`/#${from}-${encodeURIComponent(id)}`);
 });
 
 router.get('/', (req: Request, res: Response) => {
