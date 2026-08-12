@@ -1717,3 +1717,178 @@ body:has(.offline-banner) .topbar {
   text-transform: none;
   font-size: 0.8125rem;
 }
+
+.rail {
+  display: none;
+}
+
+/* ==========================================================================
+   Desktop — a different layout, not the phone one stretched
+
+   The row-and-dropdown pattern is a phone affordance: one thumb, one column,
+   detail earned by a tap. Given 1100px that same markup was a 544px ribbon on
+   a field of black, which is the mobile-is-not-a-shrunk-desktop rule running
+   in reverse. Here the nav leaves the top for a rail that is always visible,
+   the groups sit side by side, and panels are open by default — desktop has
+   room to show the working rather than hide it.
+   ========================================================================== */
+
+@media (min-width: 900px) {
+  body {
+    display: grid;
+    grid-template-columns: 15rem minmax(0, 1fr);
+    align-items: start;
+    min-height: 100vh;
+  }
+
+  /* The top bar becomes the rail. */
+  .topbar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    padding: 1.6rem 1.25rem;
+    border-bottom: 0;
+    border-right: 1px solid var(--line);
+    background: var(--bg);
+    backdrop-filter: none;
+  }
+
+  .topbar__inner {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+    padding: 0;
+    max-width: none;
+  }
+
+  .topbar__brand {
+    font-size: 1.4rem;
+  }
+
+  .topbar__stamp {
+    white-space: normal;
+  }
+
+  /* Two columns, capped so it never stretches across a 4K panel. */
+  .wrap {
+    max-width: 68rem;
+    margin: 0;
+    padding: 1.6rem 2rem 4rem;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 1.4rem;
+  }
+
+  /* Alerts and the week that the page exists for run the full width. */
+  .card--alert,
+  .card--warn,
+  .card--prompt,
+  .group--lead {
+    grid-column: 1 / -1;
+  }
+
+  /* The lead group holds the week and its queue, so it runs wide and splits
+     internally rather than making one column twice the height of the other. */
+  .group--lead .rows {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 1.4rem;
+    background: none;
+    border: 0;
+  }
+
+  .group--lead .row {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    align-self: start;
+  }
+
+  .group--lead .row + .row > .row__d > .row__head::before {
+    display: none;
+  }
+
+  .group + .group {
+    margin-top: 0;
+  }
+
+  /* A panel header, not a tappable strip: the chevron is still the control,
+     but it is no longer the only way to see anything. */
+  .row__head {
+    min-height: 52px;
+    padding: 0.7rem 1.15rem;
+  }
+
+  .row__body {
+    padding: 0.4rem 1.15rem 1.15rem;
+  }
+
+  /* Three across once there is room for it. */
+  .stats3 {
+    gap: 1.1rem;
+  }
+
+  /* The footer carries these on the phone; in the rail they are always there. */
+  .footer {
+    display: none;
+  }
+
+  .rail {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.1rem;
+    margin-top: 1.6rem;
+    padding-top: 1.2rem;
+    border-top: 1px solid var(--line);
+    width: 100%;
+  }
+
+  /* The sign-out control is wrapped in a form; without this the link inside
+     sizes to the form rather than the rail and "Sign out" breaks across two
+     lines. */
+  .rail form {
+    width: 100%;
+  }
+
+  .rail__link {
+    display: block;
+    width: 100%;
+    white-space: nowrap;
+    padding: 0.5rem 0.6rem;
+    margin-left: -0.6rem;
+    border-radius: var(--radius-sm);
+    color: var(--ink-2);
+    text-decoration: none;
+    font-size: 0.9375rem;
+    min-height: 40px;
+    line-height: 1.6;
+  }
+
+  .rail__link:hover {
+    background: var(--surface);
+    color: var(--ink);
+  }
+
+  .rail__link--button {
+    appearance: none;
+    background: none;
+    border: 0;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+}
+
+@media (min-width: 1400px) {
+  .wrap {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    max-width: 92rem;
+  }
+
+  .group:first-of-type {
+    grid-column: 1 / -1;
+  }
+}

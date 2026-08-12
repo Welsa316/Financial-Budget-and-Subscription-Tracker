@@ -927,7 +927,7 @@ function renderCards(data: DashboardViewData, trustworthy: boolean): string {
   const groups = GROUPS.map((group) => {
     const inGroup = rows.filter((item) => CARD_GROUP[item.id] === group);
     if (inGroup.length === 0) return '';
-    return `      <section class="group">
+    return `      <section class="group${group === GROUPS[0] ? ' group--lead' : ''}">
         <h2 class="group__head">${esc(GROUP_LABELS[group])}</h2>
         <ul class="rows">
           ${inGroup.map(row).join('\n          ')}
@@ -1026,6 +1026,13 @@ export function dashboardBody(data: DashboardViewData): string {
       <div class="topbar__inner">
         <span class="topbar__brand">Finance</span>
         <span class="topbar__stamp ${trustworthy ? '' : 'topbar__stamp--stale'}">${esc(syncLabel)}</span>
+        <nav class="rail" aria-label="Settings">
+          <a class="rail__link" href="/cards">Cards</a>
+          <a class="rail__link" href="/connect">Connection</a>
+          <form method="post" action="/logout">
+            <button class="rail__link rail__link--button" type="submit">Sign out</button>
+          </form>
+        </nav>
       </div>
     </header>
 

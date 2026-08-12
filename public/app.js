@@ -12,6 +12,33 @@
     });
   }
 
+  // Desktop shows the working; the phone hides it behind a tap. The browser
+  // hides <details> content with content-visibility on its slot rather than
+  // display on the child, so CSS cannot force it open — this can, and without
+  // it the desktop layout is simply a wider set of collapsed rows.
+  var wide = window.matchMedia('(min-width: 900px)');
+  var allRows = document.querySelectorAll('.row__d');
+
+  // Whatever the server decided is the phone's answer. The review queue ships
+  // open because a queue nobody opens is a queue nobody clears, and narrowing
+  // the window must put that back rather than closing everything alike.
+  for (var r = 0; r < allRows.length; r++) {
+    allRows[r].dataset.byDefault = allRows[r].open ? 'open' : 'shut';
+    allRows[r].addEventListener('toggle', function () {
+      this.dataset.touched = '1';
+    });
+  }
+
+  function fitRowsToWidth(query) {
+    for (var i = 0; i < allRows.length; i++) {
+      // A deliberate collapse survives a resize.
+      if (allRows[i].dataset.touched) continue;
+      allRows[i].open = query.matches || allRows[i].dataset.byDefault === 'open';
+    }
+  }
+  fitRowsToWidth(wide);
+  wide.addEventListener('change', fitRowsToWidth);
+
   // Signing out must not leave balances sitting in the cache.
   var logout = document.querySelector('form[action="/logout"]');
   if (logout) {
