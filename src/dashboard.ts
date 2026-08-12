@@ -34,6 +34,14 @@ export interface SpendingBreakdown {
   discretionaryCategories: SpendingSlice[];
 }
 
+/**
+ * How the transaction list is ordered. "place" groups it by where the money
+ * went, which needs a wider window than 25 rows to say anything useful.
+ */
+export type RecentSort = 'date' | 'place';
+
+export const RECENT_LIMITS: Record<RecentSort, number> = { date: 25, place: 100 };
+
 export interface DashboardModel {
   today: string;
   paycheck: PaycheckView;
@@ -42,6 +50,7 @@ export interface DashboardModel {
   soonest: CommitmentStatus | null;
   spending: SpendingBreakdown;
   recent: Classified[];
+  recentSort: RecentSort;
   transactionCount: number;
   pendingCount: number;
 }
@@ -77,8 +86,14 @@ export function loadClassified(): Classified[] {
   return classifyAll(rows, overrides);
 }
 
-/** A short human label for the spending breakdown rows. */
-function categoryOf(transaction: Classified): string {
+/**
+ * Where the money went, as a short label: the commitment if it is one, else
+ * the payee the bank gave us, else whatever the description leads with.
+ *
+ * Shared by the spending breakdown and by grouping the transaction list, so
+ * the same charge reads the same way in both.
+ */
+export function placeLabel(transaction: Classified): string {
   if (transaction.commitment) return transaction.commitment;
   if (transaction.merchant) return titleCase(transaction.merchant);
 
@@ -93,7 +108,7 @@ function categoryOf(transaction: Classified): string {
 function summarise(transactions: Classified[], limit: number): SpendingSlice[] {
   const byLabel = new Map<string, SpendingSlice>();
   for (const transaction of transactions) {
-    const label = categoryOf(transaction);
+    const label = placeLabel(transaction);
     const existing = byLabel.get(label);
     if (existing) {
       existing.cents += Math.abs(transaction.amountCents);
@@ -147,7 +162,10 @@ export function buildSpending(
   };
 }
 
-export function buildDashboard(recentLimit = 25): DashboardModel {
+export function buildDashboard(
+  recentSort: RecentSort = 'date',
+  recentLimit = RECENT_LIMITS[recentSort],
+): DashboardModel {
   const rules = getRules();
   const today = toYmd();
   const classified = loadClassified();
@@ -161,7 +179,10 @@ export function buildDashboard(recentLimit = 25): DashboardModel {
     totals: totalCommitments(commitments),
     soonest: nextUp(commitments),
     spending: buildSpending(classified, today),
+    // Always the most recent N; "place" changes how they are grouped for
+    // reading, not which transactions you are looking at.
     recent: classified.slice(0, recentLimit),
+    recentSort,
     transactionCount: classified.length,
     pendingCount: classified.filter((transaction) => transaction.pending).length,
   };

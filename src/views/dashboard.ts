@@ -2,7 +2,7 @@ import { esc, money, moneyAbs } from '../format.js';
 import { formatStamp, formatDayMonth, relativeDays } from '../time.js';
 import type { Classified } from '../classify.js';
 import type { CommitmentStatus } from '../commitments.js';
-import type { DashboardModel, SpendingSlice } from '../dashboard.js';
+import { placeLabel, type DashboardModel, type SpendingSlice } from '../dashboard.js';
 import type { SpentLine, WeekSummary } from '../budget.js';
 
 export interface AccountRow {
@@ -101,30 +101,14 @@ function paycheckSection(data: DashboardViewData): string {
         </p>
 
         ${
-          current.refundedCents > 0
-            ? `<p class="hero__note">Includes ${esc(moneyAbs(current.refundedCents))} of refunds
-               netted against this week's spending.</p>`
-            : ''
-        }
-
-        ${
-          negative
-            ? `<p class="hero__note hero__note--warn">
-                 You spent more fun money than this week earned. The deficit
-                 carries into next week — there is nothing to pay yourself.
-               </p>`
-            : ''
-        }
-
-        ${
-          current.pendingAffecting
-            ? `<p class="hero__note">
-                 ${esc(moneyAbs(current.pendingSpentCents))} of this is still pending and could change.
-               </p>`
-            : ''
-        }
-
-        ${
+          // The refund, deficit and pending notes used to sit here. All three
+          // only restated something already on the card: the deficit is what
+          // the big negative number says, and refunds and pending charges are
+          // both marked against the individual rows in the breakdown below.
+          //
+          // This one stays because nothing else shows it. An unmatched credit
+          // is money that landed in the account and is counted nowhere, so
+          // without a note it is invisible rather than merely unremarked.
           current.unmatchedCreditCents > 0
             ? `<p class="hero__note hero__note--warn">
                  ${esc(moneyAbs(current.unmatchedCreditCents))} came in that I could not identify.
@@ -374,13 +358,17 @@ function transactionRow(transaction: Classified): string {
     .join('\n                ');
 
   // The id is the anchor target for /override's redirect and for the "already
-  // spent" drill-down. It sits on the summary rather than the li on purpose:
-  // a fragment pointing INSIDE a closed <details> makes the browser open it,
-  // so following a link lands on the row with the reclassify buttons already
-  // showing. On the li it scrolled to a row you then had to tap to expand.
+  // spent" drill-down, and it sits on the body — the part a closed <details>
+  // hides — rather than on the li or the summary.
+  //
+  // That placement is the whole trick. A browser reveals a fragment target by
+  // opening every <details> above it, but only when the target is actually
+  // hidden: a <summary> is the control, visible either way, so pointing at one
+  // opens nothing. Verified in the browser rather than assumed, because the id
+  // was on the summary first and silently did not work.
   return `<li class="txn">
             <details class="txn__details">
-              <summary class="txn__summary" id="txn-${esc(transaction.id)}">
+              <summary class="txn__summary">
                 <span class="txn__main">
                   <span class="txn__desc">${esc(transaction.merchant ?? transaction.description)}</span>
                   <span class="txn__meta">
@@ -396,7 +384,7 @@ function transactionRow(transaction: Classified): string {
                   transaction.amountCents > 0 ? 'txn__amount--in' : ''
                 }">${esc(money(transaction.amountCents))}</span>
               </summary>
-              <div class="txn__body">
+              <div class="txn__body" id="txn-${esc(transaction.id)}">
                 <p class="txn__why">${esc(transaction.reason)}</p>
                 <p class="txn__raw">${esc(transaction.description)}</p>
                 <form method="post" action="/override" class="txn__actions">
@@ -411,6 +399,112 @@ function transactionRow(transaction: Classified): string {
               </div>
             </details>
           </li>`;
+}
+
+/**
+ * The same transactions, gathered by where the money went.
+ *
+ * Ordered by how much each place took rather than alphabetically: the question
+ * this answers is "what is eating my money", and the answer should be the first
+ * thing on screen. Money coming in is grouped too, so a place you were refunded
+ * by nets out instead of appearing twice.
+ */
+interface PlaceGroup {
+  label: string;
+  outCents: number;
+  inCents: number;
+  transactions: Classified[];
+}
+
+function groupByPlace(transactions: Classified[]): PlaceGroup[] {
+  const groups = new Map<string, PlaceGroup>();
+
+  for (const transaction of transactions) {
+    const label = placeLabel(transaction);
+    const group =
+      groups.get(label) ?? { label, outCents: 0, inCents: 0, transactions: [] as Classified[] };
+    if (transaction.amountCents < 0) group.outCents += Math.abs(transaction.amountCents);
+    else group.inCents += transaction.amountCents;
+    group.transactions.push(transaction);
+    groups.set(label, group);
+  }
+
+  return [...groups.values()].sort(
+    (a, b) => b.outCents - a.outCents || a.label.localeCompare(b.label),
+  );
+}
+
+function placeGroup(group: PlaceGroup): string {
+  const count = group.transactions.length;
+  const net = group.outCents - group.inCents;
+  // A place that paid you more than you paid it — wages, or a full refund.
+  // Without the distinction income read as though you had spent it there.
+  const incoming = net < 0;
+
+  const meta = [`${count} charge${count === 1 ? '' : 's'}`];
+  // Only worth saying when money went both ways; on pure income the total
+  // already is the money that came back.
+  if (group.inCents > 0 && group.outCents > 0) meta.push(`${moneyAbs(group.inCents)} back`);
+
+  // Collapsed, so the card reads as a ranked list of where the money goes
+  // rather than the same transactions with headings between them — a hundred
+  // rows of that is a lot of thumb. The charges are one tap away, and a link
+  // from the "already spent" breakdown still reaches them: navigating to a
+  // fragment opens every details element above it, not just the nearest.
+  return `<li>
+            <details class="place">
+              <summary class="place__head">
+                <span class="place__headings">
+                  <span class="place__name">${esc(group.label)}</span>
+                  <span class="place__meta">${esc(meta.join(' · '))}</span>
+                </span>
+                <span class="place__amount num ${incoming ? 'place__amount--in' : ''}">${
+                  incoming ? '+' : ''
+                }${esc(moneyAbs(net))}</span>
+              </summary>
+              <ul class="txns">
+                ${group.transactions.map(transactionRow).join('\n                ')}
+              </ul>
+            </details>
+          </li>`;
+}
+
+function transactionsSection(data: DashboardViewData): string {
+  const byPlace = data.recentSort === 'place';
+
+  // Plain links, so the sort survives a reload and can be bookmarked. There is
+  // no client-side state to lose.
+  const toggle = `<div class="sortbar" role="group" aria-label="Sort transactions">
+          <a class="chip ${byPlace ? '' : 'chip--on'}" href="/"${
+            byPlace ? '' : ' aria-current="true"'
+          }>Newest</a>
+          <a class="chip ${byPlace ? 'chip--on' : ''}" href="/?sort=place"${
+            byPlace ? ' aria-current="true"' : ''
+          }>By place</a>
+        </div>`;
+
+  const body = byPlace
+    ? `<ul class="places">
+          ${groupByPlace(data.recent).map(placeGroup).join('\n          ')}
+        </ul>`
+    : `<ul class="txns">
+          ${data.recent.map(transactionRow).join('\n          ')}
+        </ul>`;
+
+  return `      <section class="card">
+        <h2 class="card__title">Recent transactions</h2>
+        ${toggle}
+        <p class="card__lede">${
+          byPlace
+            ? `The last ${data.recent.length} transactions, gathered by where the money went, biggest first.`
+            : 'Tap any row to see why it was classified that way, and change it.'
+        }</p>
+        ${
+          data.recent.length === 0
+            ? '<p class="card__body">Nothing yet. Run a sync once SimpleFIN is connected.</p>'
+            : body
+        }
+      </section>`;
 }
 
 // --- Page -----------------------------------------------------------------
@@ -506,18 +600,7 @@ ${nextUpSection(data.soonest)}
 ${commitmentsSection(data)}
 ${spendingSection(data)}
 
-      <section class="card">
-        <h2 class="card__title">Recent transactions</h2>
-        <p class="card__lede">Tap any row to see why it was classified that way, and change it.</p>
-        <ul class="txns">
-          ${data.recent.map(transactionRow).join('\n          ')}
-        </ul>
-        ${
-          data.recent.length === 0
-            ? '<p class="card__body">Nothing yet. Run a sync once SimpleFIN is connected.</p>'
-            : ''
-        }
-      </section>
+${transactionsSection(data)}
 
       <section class="card">
         <h2 class="card__title">Sync</h2>

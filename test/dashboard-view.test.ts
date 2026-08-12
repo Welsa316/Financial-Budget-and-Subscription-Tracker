@@ -46,6 +46,7 @@ function render(
     soonest: nextUp(commitments),
     spending: buildSpending(transactions, TODAY),
     recent: transactions,
+    recentSort: 'date',
     transactionCount: transactions.length,
     pendingCount: transactions.filter((t) => t.pending).length,
     accounts: [],
@@ -137,17 +138,28 @@ describe('"already spent" is auditable', () => {
   });
 
   /**
-   * A fragment pointing INSIDE a closed <details> makes the browser open it.
-   * With the id on the wrapping <li> the link scrolled to a row that was still
-   * collapsed, so reclassifying a charge took an extra tap to find the buttons.
+   * A browser reveals a fragment target by opening every <details> above it,
+   * but only when the target is genuinely hidden. A <summary> is the control
+   * and stays visible either way, so an id there opens nothing — which is what
+   * this anchor did at first, silently. The id has to be on the body.
    */
-  it('lands on a row with the reclassify buttons already showing', () => {
+  it('puts the anchor on the hidden part of the row, which is what opens it', () => {
     const html = render({}, txns);
-    const row = html.slice(html.indexOf('<li class="txn"'));
-    const details = row.indexOf('<details');
-    const anchor = row.indexOf('id="txn-t2"');
-    assert.ok(anchor > details && details !== -1, 'the anchor sits inside the details, not outside');
-    assert.doesNotMatch(html, /<li class="txn" id=/, 'not on the wrapper, where it cannot open it');
+    // Locate t2's own row: find its anchor, then the markup that opens the row
+    // it sits in. Slicing from the first `<li class="txn">` finds a different
+    // transaction entirely.
+    const anchor = html.indexOf('id="txn-t2"');
+    assert.ok(anchor > 0, 't2 is rendered');
+
+    const li = html.lastIndexOf('<li class="txn"', anchor);
+    const summary = html.lastIndexOf('<summary', anchor);
+    const body = html.lastIndexOf('<div class="txn__body"', anchor);
+
+    assert.ok(li < summary && summary < body, 'sanity: li, then summary, then body');
+    assert.ok(anchor > body, 'the anchor is on the body, not the summary or the li');
+    assert.match(html, /<div class="txn__body" id="txn-t2">/);
+    assert.doesNotMatch(html, /<summary class="txn__summary" id=/, 'a summary is never hidden');
+    assert.doesNotMatch(html, /<li class="txn" id=/, 'nor is the wrapper');
   });
 
   it('lists a charge that is not in Recent, but does not link it nowhere', () => {

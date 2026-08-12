@@ -765,6 +765,98 @@ a.spent__link:hover .spent__label {
 
 /* ---------- Transactions ---------- */
 
+/* ---------- Sorting the transaction list ---------- */
+
+.sortbar {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+/* .chip is otherwise a <button>; as a link it needs laying out by hand, or the
+   44px touch target collapses to the height of the text. */
+.sortbar .chip {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.places {
+  display: flex;
+  flex-direction: column;
+}
+
+.place {
+  border-bottom: 1px solid var(--line);
+}
+
+.places > li:last-child .place {
+  border-bottom: 0;
+}
+
+.place__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 52px;
+  padding: 0.5rem 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.place__head::-webkit-details-marker {
+  display: none;
+}
+
+/* Same affordance as the other disclosures on the page, so an expandable row
+   looks expandable rather than merely tappable. */
+.place__head::before {
+  content: '▸';
+  color: var(--ink-3);
+  transition: transform 140ms ease;
+}
+
+.place[open] > .place__head::before {
+  transform: rotate(90deg);
+}
+
+.place__headings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  margin-right: auto;
+}
+
+.place__name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.place__amount {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Same green the individual incoming rows use, so a place that paid you does
+   not read as a place you spent at. */
+.place__amount--in {
+  color: var(--positive);
+}
+
+.place__meta {
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+}
+
+/* The rows sit under their heading rather than beside it: at 375px an indent
+   deep enough to read as nesting leaves nothing for the description. */
+.place > .txns {
+  border-top: 1px solid var(--line);
+  padding-bottom: 0.4rem;
+}
+
 .txns {
   display: flex;
   flex-direction: column;
@@ -810,6 +902,10 @@ a.spent__link:hover .spent__label {
 
 .txn__body {
   padding: 0 0 0.85rem;
+  /* The anchor is on the body, so scrolling to it would put the row's own
+     description and amount off the top of the screen, under the sticky bar.
+     Reserving space above brings the row it belongs to back into view. */
+  scroll-margin-top: 9rem;
 }
 
 .txn__why {

@@ -20,7 +20,7 @@ import {
 import { SimpleFinError, claimSetupToken } from './simplefin.js';
 import { isSyncRunning, nextScheduledRun, runSync } from './sync.js';
 import { connectPage, dashboardPage, errorPage, loginPage, type AccountRow } from './views.js';
-import { buildDashboard } from './dashboard.js';
+import { buildDashboard, type RecentSort } from './dashboard.js';
 import { loadStatementRows, type IncomingRow } from './import.js';
 
 export const router = Router();
@@ -270,8 +270,9 @@ router.post('/override', (req: Request, res: Response) => {
   res.redirect(`/#txn-${encodeURIComponent(id)}`);
 });
 
-router.get('/', (_req: Request, res: Response) => {
+router.get('/', (req: Request, res: Response) => {
   const db = getDb();
+  const recentSort: RecentSort = req.query.sort === 'place' ? 'place' : 'date';
 
   const accounts = db
     .prepare(
@@ -294,7 +295,7 @@ router.get('/', (_req: Request, res: Response) => {
 
   res.type('html').send(
     dashboardPage({
-      ...buildDashboard(),
+      ...buildDashboard(recentSort),
       accounts,
       lastSync: lastSync ?? null,
       bankConnected: connected,
