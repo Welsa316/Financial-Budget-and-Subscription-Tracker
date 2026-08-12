@@ -10,16 +10,9 @@ import {
 } from '../dashboard.js';
 import { standing, type SpentLine, type WeekSummary } from '../budget.js';
 import { BRAND_ICONS } from './brand-icons.js';
+import { getRules, type CardFace } from '../rules.js';
 import { SPEND_DAYS } from '../dashboard.js';
-import {
-  CARD_GROUP,
-  CARD_ICONS,
-  CARD_LABELS,
-  GROUPS,
-  GROUP_LABELS,
-  type CardId,
-  type CardLayout,
-} from '../layout.js';
+import { CARD_ICONS, CARD_LABELS, type CardId, type CardLayout } from '../layout.js';
 
 export interface AccountRow {
   id: string;
@@ -530,7 +523,6 @@ function reviewDetail(data: DashboardViewData): string {
   const items = data.review;
   if (items.length === 0) return '';
 
-
   return `        <ul class="txns">
           ${items
             .map(
@@ -559,8 +551,7 @@ function reviewDetail(data: DashboardViewData): string {
           </li>`,
             )
             .join('\n          ')}
-        </ul>
-      </section>`;
+        </ul>`;
 }
 
 /**
@@ -825,31 +816,29 @@ interface Row {
 
 /**
  * The balance shown on the card that holds it, drawn as the newer Chase
- * debit: deep navy field, wordmark and octagon, the Debit/VISA corner. No
- * chip (per Walid) and nothing invented - the balance sits where the card
- * number would. Staleness is not printed on the card; the topbar, the sync
- * banner and the balance detail already carry it.
+ * debit: deep navy field, wordmark and octagon, the Debit/VISA corner.
+ *
+ * What is printed comes from config/rules.json, not from sniffing the account
+ * name. The only strings available at runtime are whatever SimpleFIN reports
+ * for the account and its organisation, and neither reliably contains the
+ * bank's name - inferring from them silently produced an unbranded card in
+ * production while every test with a tidy fixture passed. Nothing here is a
+ * number: the balance sits where the card number would, and no digits exist.
  */
-function bankCardHead(account: AccountRow, balance: number | null): string {
-  const mark = BRAND_ICONS['chase'];
-  // The institution field is whatever SimpleFIN reports, which on the live
-  // account is not the word "Chase" - the account NAME is where it reliably
-  // appears, so both are checked. Word-bounded on purpose: a bare substring
-  // test also matches "purchase", which would brand any account whose name
-  // contains that word.
-  const chase = /\bchase\b/.test(`${account.institution ?? ''} ${account.name}`.toLowerCase());
+function bankCardHead(account: AccountRow, balance: number | null, card: CardFace): string {
+  const mark = card.brand ? BRAND_ICONS[card.brand] : undefined;
   return `<summary class="bankcard">
-                <span class="bankcard__brand" aria-hidden="true">${
-                  chase && mark
-                    ? `<b>CHASE</b><svg viewBox="0 0 24 24"><path d="${mark.path}" /></svg>`
-                    : `<b>${esc((account.institution ?? account.name).toUpperCase())}</b>`
-                }</span>
+                <span class="bankcard__brand" aria-hidden="true"><b>${esc(
+                  card.wordmark,
+                )}</b>${mark ? `<svg viewBox="0 0 24 24"><path d="${mark.path}" /></svg>` : ''}</span>
                 <span class="bankcard__label">Balance</span>
                 <span class="bankcard__figure num">${
                   balance === null ? '—' : moneyParts(balance)
                 }</span>
                 <span class="bankcard__name">${esc(account.name)}</span>
-                <span class="bankcard__network" aria-hidden="true"><i>Debit</i><b>VISA</b></span>
+                <span class="bankcard__network" aria-hidden="true"><i>${esc(
+                  card.kind,
+                )}</i><b>${esc(card.network)}</b></span>
               </summary>`;
 }
 
@@ -866,7 +855,7 @@ function wallet(data: DashboardViewData, trustworthy: boolean): string {
   const balance = account.available_cents ?? account.ledger_cents;
   return `      <section class="wallet">
         <details class="wallet__d">
-          ${bankCardHead(account, balance)}
+          ${bankCardHead(account, balance, getRules().card)}
           <div class="wallet__body">
             ${data.accounts.map((a) => balanceDetail(a, trustworthy)).join('\n')}
           </div>
@@ -944,26 +933,21 @@ function renderCards(data: DashboardViewData, trustworthy: boolean): string {
   const order = new Map(data.layout.order.map((id, index) => [id, index]));
   rows.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
 
-  const groups = GROUPS.map((group) => {
-    const inGroup = rows.filter((item) => CARD_GROUP[item.id] === group);
-    if (inGroup.length === 0) return '';
-    return `      <section class="group${group === GROUPS[0] ? ' group--lead' : ''}">
-        <h2 class="group__head">${esc(GROUP_LABELS[group])}</h2>
-        <ul class="rows">
-          ${inGroup.map(row).join('\n          ')}
-        </ul>
-      </section>`;
-  })
-    .filter(Boolean)
-    .join('\n');
-
-  return (
-    groups ||
-    `      <section class="group">
+  if (rows.length === 0) {
+    return `      <section class="group">
         <p class="group__empty">Every card is turned off.</p>
         <a class="btn btn--quiet btn--block" href="/cards">Choose cards</a>
-      </section>`
-  );
+      </section>`;
+  }
+
+  // One list, in the saved order. The three group headings sorted four rows
+  // into buckets of one, one and two - more labels than content, and they
+  // silently overrode the ordering the Cards page claims to control.
+  return `      <section class="group group--lead">
+        <ul class="rows">
+          ${rows.map(row).join('\n          ')}
+        </ul>
+      </section>`;
 }
 
 /**

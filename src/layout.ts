@@ -34,34 +34,6 @@ export const CARD_LABELS: Record<CardId, string> = {
 };
 
 /**
- * The groups rows sit under, in order.
- *
- * A page of ten identical boxes has no hierarchy — everything shouts equally,
- * so nothing is read. Collapsing each card to one row of icon, name and value
- * puts the whole dashboard on a screen or two, and headings do the separating
- * that ten borders were failing to do.
- */
-export const GROUPS = ['week', 'coming', 'activity'] as const;
-export type GroupId = (typeof GROUPS)[number];
-
-export const GROUP_LABELS: Record<GroupId, string> = {
-  week: 'This week',
-  coming: 'Coming up',
-  activity: 'Where it goes',
-};
-
-export const CARD_GROUP: Record<CardId, GroupId> = {
-  paycheck: 'week',
-  review: 'week',
-  // The balance renders as the wallet card, outside every group; the id
-  // stays so it can still be hidden from /cards.
-  balances: 'coming',
-  commitments: 'coming',
-  spending: 'activity',
-  transactions: 'activity',
-};
-
-/**
  * One simple mark each, drawn inline so nothing external loads and the CSP
  * stays as tight as it is. Stroked rather than filled, at a common 24-unit
  * grid, so they read as one set rather than as eight borrowed glyphs.
@@ -77,6 +49,18 @@ export const CARD_ICONS: Record<CardId, string> = {
 
 /** Cards that stay put: the paycheck is the point, and the queue guards it. */
 const ALWAYS_SHOWN: readonly CardId[] = ['paycheck'];
+
+/**
+ * Cards that do not render as rows: the paycheck is the hero and the balance
+ * is the wallet card, both pinned above the list. Their position in `order`
+ * is meaningless, so the Cards page must not offer to move them - it did, and
+ * pressing the arrows looked broken because nothing on the dashboard moved.
+ */
+const FIXED_POSITION: readonly CardId[] = ['paycheck', 'balances'];
+
+export function canReorder(id: CardId): boolean {
+  return !FIXED_POSITION.includes(id);
+}
 
 export interface CardLayout {
   order: CardId[];
@@ -140,15 +124,30 @@ export function canHide(id: CardId): boolean {
   return !ALWAYS_SHOWN.includes(id);
 }
 
-/** Moves one card one place, ignoring a move off either end. */
+/**
+ * Moves one card past its nearest movable neighbour.
+ *
+ * Neighbour, not index: the pinned cards sit in the same array but never
+ * render as rows, so swapping across one changed the stored order and moved
+ * nothing on screen. Skipping them means every accepted move is a visible one.
+ */
 export function reorder(order: CardId[], id: CardId, direction: 'up' | 'down'): CardId[] {
+  if (!canReorder(id)) return order;
   const from = order.indexOf(id);
   if (from === -1) return order;
-  const to = direction === 'up' ? from - 1 : from + 1;
+
+  const step = direction === 'up' ? -1 : 1;
+  let to = from + step;
+  while (to >= 0 && to < order.length && !canReorder(order[to]!)) to += step;
   if (to < 0 || to >= order.length) return order;
 
   const next = [...order];
   const [moved] = next.splice(from, 1);
   next.splice(to, 0, moved!);
   return next;
+}
+
+/** Whether a move would actually change anything, for disabling the button. */
+export function canMove(order: CardId[], id: CardId, direction: 'up' | 'down'): boolean {
+  return reorder(order, id, direction) !== order;
 }

@@ -53,8 +53,17 @@ export interface CategoryRule {
   patterns: string[];
 }
 
+export interface CardFace {
+  /** simple-icons slug for the bank mark, or null for the wordmark alone. */
+  brand: string | null;
+  wordmark: string;
+  network: string;
+  kind: string;
+}
+
 export interface Rules {
   allowance: { rate: number; weekStartsOn: string };
+  card: CardFace;
   incomeBaseline: {
     floorCents: number;
     medianCents: number;
@@ -83,6 +92,12 @@ function fail(message: string): never {
 function validate(raw: Rules): Rules {
   if (typeof raw.allowance?.rate !== 'number' || raw.allowance.rate < 0 || raw.allowance.rate > 1) {
     fail('allowance.rate must be a number between 0 and 1');
+  }
+  if (!raw.card || typeof raw.card.wordmark !== 'string' || !raw.card.wordmark) {
+    fail('card.wordmark must be a non-empty string');
+  }
+  if (raw.card.brand !== null && typeof raw.card.brand !== 'string') {
+    fail('card.brand must be a simple-icons slug or null');
   }
   if (!Array.isArray(raw.subscriptions)) fail('subscriptions must be an array');
   if (!Array.isArray(raw.essentials)) fail('essentials must be an array');

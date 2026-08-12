@@ -5,7 +5,7 @@ import { buildPaycheckView } from '../src/budget.js';
 import { buildCommitments, totalCommitments } from '../src/commitments.js';
 import { buildSpending } from '../src/dashboard.js';
 import { dashboardBody, type DashboardViewData } from '../src/views/dashboard.js';
-import { CARD_IDS, defaultLayout, type CardId } from '../src/layout.js';
+import { CARD_IDS, defaultLayout, reorder, type CardId } from '../src/layout.js';
 import { getRules } from '../src/rules.js';
 import { normalizeDescription, toCents } from '../src/normalize.js';
 
@@ -332,59 +332,36 @@ describe('rows', () => {
     assert.equal(head(html, 'Friday paycheck'), null, 'not duplicated as a row');
   });
 
-  it('groups the rows under headings rather than stacking eight boxes', () => {
+  /** Row names from the reorderable list only — Sync has its own section. */
+  const rowNames = (html: string): string[] => {
+    const lead = html.slice(html.indexOf('group group--lead'));
+    const list = lead.slice(0, lead.indexOf('</section>'));
+    return [...list.matchAll(/<span class="row__name">([^<]+)</g)].map((m) => m[1]!);
+  };
+
+  it('renders the rows in the saved order, and the order actually moves them', () => {
+    assert.deepEqual(rowNames(render({}, txns)), [
+      'Commitments',
+      'Last 30 days',
+      'Recent transactions',
+    ]);
+
+    // The bug this replaced: rows were bucketed into fixed group headings, so
+    // a saved order could move a card and the page would look identical.
+    const moved = reorder([...CARD_IDS], 'transactions', 'up');
+    const after = render({ layout: { order: moved, hidden: new Set<CardId>() } }, txns);
+    assert.deepEqual(
+      rowNames(after),
+      ['Commitments', 'Recent transactions', 'Last 30 days'],
+      'moving a card up reorders the rendered list',
+    );
+  });
+
+  it('renders one list rather than a heading per bucket', () => {
     const html = render({}, txns);
-    // 'This week' only exists when the review queue gives it a reason, and
-    // 'Accounts' is gone for good: the wallet card replaced the group.
-    for (const heading of ['Coming up', 'Where it goes']) {
-      assert.ok(html.includes(heading), `${heading} groups its rows`);
+    for (const gone of ['This week', 'Coming up', 'Where it goes']) {
+      assert.ok(!html.includes(gone), `${gone} heading is gone`);
     }
-    for (const gone of ['This week', 'Accounts', 'Due in 30 days']) {
-      assert.ok(!html.includes(gone), `${gone} is not rendered`);
-    }
-    const withReview = render(
-      { review: [{ transaction: txns[1]!, reason: 'first-time', detail: 'x' }] },
-      txns,
-    );
-    assert.ok(withReview.includes('This week'), 'and returns when the queue has items');
-  });
-
-  it('renders the balance as a standalone card, not a row in a box', () => {
-    const chase = {
-      id: 'acc1',
-      name: 'Chase Total Checking',
-      institution: 'Chase',
-      available_cents: 84213,
-      ledger_cents: 86000,
-    };
-    const html = render({ accounts: [chase] }, txns);
-    const wallet = html.match(/<section class="wallet">([\s\S]*?)<\/section>/);
-    assert.ok(wallet, 'the wallet section renders');
-    assert.match(wallet![1]!, /class="bankcard"/, 'and holds the card face');
-    assert.ok(!/class="rows"[\s\S]*?bankcard/.test(html), 'the card sits in no row list');
-    const hidden = render(
-      { accounts: [chase], layout: { order: [...CARD_IDS], hidden: new Set<CardId>(['balances']) } },
-      txns,
-    );
-    assert.ok(!hidden.includes('class="wallet"'), 'hiding balances removes the wallet');
-    assert.ok(!render({}, txns).includes('class="wallet"'), 'no account, no card');
-  });
-
-  it('shows the Chase mark even when only the account name says Chase', () => {
-    // The live institution field is whatever SimpleFIN reports - the mark
-    // vanished in production because it was gated on institution alone.
-    const html = render(
-      {
-        accounts: [
-          { id: 'a', name: 'Chase Total Checking', institution: null, available_cents: 100, ledger_cents: 100 },
-        ],
-      },
-      txns,
-    );
-    const brand = html.match(/<span class="bankcard__brand"[\s\S]*?<\/span>/);
-    assert.ok(brand, 'brand block renders');
-    assert.match(brand![0]!, /<b>CHASE<\/b>/, 'wordmark');
-    assert.match(brand![0]!, /<svg viewBox="0 0 24 24">/, 'octagon');
   });
 
   it('keeps every row shut except the queue, which is there to be worked', () => {
@@ -522,30 +499,83 @@ describe('transactions by day', () => {
 });
 
 /**
- * The card mark is gated on a name test, and a bare substring match for
- * "chase" also matches "purchase" — which would brand an unrelated account.
+ * The mark is configured, not inferred. It disappeared in production because
+ * it was gated on the institution string SimpleFIN reports, which is not the
+ * bank's name on the live account — and every test fixture said "Chase", so
+ * nothing caught it. Config cannot drift out from under the view this way.
  */
-describe('the card mark', () => {
+describe('the card face', () => {
   const txns = [make('DOORDASH INC PAYMENT', '900.00', '2026-08-08')];
-  const withAccount = (name: string, institution: string | null): string =>
+  const html = (): string =>
     render(
-      { accounts: [{ id: 'a', name, institution, available_cents: 100, ledger_cents: 100 }] },
+      {
+        accounts: [
+          {
+            id: 'a',
+            // Deliberately says nothing about which bank this is.
+            name: 'TOTAL CHECKING',
+            institution: null,
+            available_cents: 84213,
+            ledger_cents: 84213,
+          },
+        ],
+      },
       txns,
     );
 
-  it('does not brand an account whose name merely contains "purchase"', () => {
-    const html = withAccount('Purchases Account', null);
-    const brand = html.match(/<span class="bankcard__brand"[\s\S]*?<\/span>/)![0]!;
-    assert.doesNotMatch(brand, /<b>CHASE<\/b>/, 'no Chase wordmark');
-    assert.doesNotMatch(brand, /<svg/, 'no octagon');
-    assert.match(brand, /PURCHASES ACCOUNT/, 'it names itself instead');
+  it('brands the card from config even when the account names no bank', () => {
+    const brand = html().match(/<span class="bankcard__brand"[\s\S]*?<\/span>/)![0]!;
+    assert.match(brand, /<b>CHASE<\/b>/, 'the wordmark comes from rules.json');
+    assert.match(brand, /<svg viewBox="0 0 24 24">/, 'and so does the octagon');
   });
 
-  it('still brands a real Chase account from either field', () => {
-    for (const html of [withAccount('Total Checking', 'Chase'), withAccount('Chase Total Checking', null)]) {
-      const brand = html.match(/<span class="bankcard__brand"[\s\S]*?<\/span>/)![0]!;
-      assert.match(brand, /<b>CHASE<\/b>/);
-      assert.match(brand, /<svg/);
-    }
+  it('prints the network and kind from config, and no card digits anywhere', () => {
+    const out = html();
+    assert.match(out, /<i>Debit<\/i><b>VISA<\/b>/);
+    const face = out.slice(out.indexOf('class="bankcard"'), out.indexOf('</summary>'));
+    // A card face invites fake PAN digits; there are none to leak.
+    assert.doesNotMatch(face, /\d{4}\s*\d{4}/, 'no card-number-shaped text');
+    assert.doesNotMatch(face, /••••|\*\*\*\*/, 'not even masked ones');
   });
+});
+
+/**
+ * Tag balance across the whole page.
+ *
+ * reviewDetail shipped a `</section>` it never opened. In the source string it
+ * is invisible, and while every card sat in its own <section> the browser's
+ * recovery hid it — but once the rows shared one list, that stray tag closed
+ * the list after the first row and threw the rest outside it. Counting tags
+ * catches the whole class; the DOM is what renders, not the template.
+ */
+describe('markup balance', () => {
+  const txns = [
+    make('Card Purchase 08/10 Rouses Market #12 New Orleans LA', '-96.42', '2026-08-10'),
+    make('DOORDASH INC PAYMENT', '900.00', '2026-08-08'),
+  ];
+
+  const counts = (html: string, tag: string): [number, number] => [
+    [...html.matchAll(new RegExp(`<${tag}[\\s>]`, 'g'))].length,
+    [...html.matchAll(new RegExp(`</${tag}>`, 'g'))].length,
+  ];
+
+  const cases: Array<[string, Partial<DashboardViewData>]> = [
+    ['the default dashboard', {}],
+    [
+      'with the review queue open',
+      { review: [{ transaction: txns[0]!, reason: 'first-time', detail: 'x' }] },
+    ],
+    ['sorted by category', { recentSort: 'category' }],
+    ['sorted by place', { recentSort: 'place' }],
+  ];
+
+  for (const [name, extra] of cases) {
+    it(`balances every container on ${name}`, () => {
+      const html = render(extra, txns);
+      for (const tag of ['section', 'ul', 'li', 'details', 'summary', 'div']) {
+        const [open, close] = counts(html, tag);
+        assert.equal(open, close, `<${tag}> opened ${open}, closed ${close}`);
+      }
+    });
+  }
 });

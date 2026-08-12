@@ -27,7 +27,7 @@ import {
   loginPage,
   type AccountRow,
 } from './views.js';
-import { canHide, getLayout, reorder, saveLayout, type CardId } from './layout.js';
+import { canHide, canReorder, getLayout, reorder, saveLayout, type CardId } from './layout.js';
 import { buildDashboard, isSpendDays, type RecentSort, type SpendDays } from './dashboard.js';
 import { loadStatementRows, type IncomingRow } from './import.js';
 
@@ -262,7 +262,7 @@ router.post('/cards', (req: Request, res: Response) => {
 
   if (move) {
     const [id, direction] = move.split(':');
-    if (id && known(id) && (direction === 'up' || direction === 'down')) {
+    if (id && known(id) && canReorder(id) && (direction === 'up' || direction === 'down')) {
       layout.order = reorder(layout.order, id, direction);
       saveLayout(layout);
     }

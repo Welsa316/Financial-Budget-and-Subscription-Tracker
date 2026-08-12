@@ -174,3 +174,34 @@ describe('the cards page', () => {
     assert.equal(layout.getLayout().hidden.has('paycheck'), false);
   });
 });
+
+/**
+ * The paycheck renders as the hero and the balance as the wallet card, both
+ * above the row list. They sit in the same order array, so a naive swap across
+ * one stored a new order and moved nothing on screen — which is exactly what
+ * "the arrows do nothing" looked like.
+ */
+describe('reordering past the pinned cards', () => {
+  it('refuses to move a pinned card at all', () => {
+    const order = [...layout.CARD_IDS];
+    assert.deepEqual(layout.reorder(order, 'paycheck', 'down'), order, 'the hero stays put');
+    assert.deepEqual(layout.reorder(order, 'balances', 'up'), order, 'so does the wallet');
+  });
+
+  it('skips over a pinned card instead of swapping with it', () => {
+    // order: paycheck review balances commitments spending transactions
+    // commitments up must pass OVER balances and land next to review —
+    // swapping with balances would be a no-op on screen.
+    const moved = layout.reorder([...layout.CARD_IDS], 'commitments', 'up');
+    const rows = moved.filter((id) => id !== 'paycheck' && id !== 'balances');
+    assert.deepEqual(rows, ['commitments', 'review', 'spending', 'transactions']);
+  });
+
+  it('reports a move as impossible only when nothing would change', () => {
+    const order = [...layout.CARD_IDS];
+    assert.equal(layout.canMove(order, 'review', 'up'), false, 'already the first row');
+    assert.equal(layout.canMove(order, 'transactions', 'down'), false, 'already the last');
+    assert.equal(layout.canMove(order, 'commitments', 'up'), true);
+    assert.equal(layout.canMove(order, 'paycheck', 'down'), false, 'pinned');
+  });
+});

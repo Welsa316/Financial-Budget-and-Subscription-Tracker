@@ -1,5 +1,5 @@
 import { esc } from './format.js';
-import { CARD_LABELS, canHide, type CardLayout } from './layout.js';
+import { CARD_LABELS, canHide, canMove, canReorder, type CardLayout } from './layout.js';
 import { dashboardBody, type DashboardViewData } from './views/dashboard.js';
 import type { ConfigProblem } from './config.js';
 
@@ -130,10 +130,8 @@ export function connectPage(data: ConnectPageData): string {
  */
 export function cardsPage(cards: CardLayout): string {
   const rows = cards.order
-    .map((id, index) => {
+    .map((id) => {
       const hidden = cards.hidden.has(id);
-      const first = index === 0;
-      const last = index === cards.order.length - 1;
 
       const move = (direction: 'up' | 'down', disabled: boolean): string =>
         `<button class="chip chip--icon" type="submit" name="move" value="${esc(
@@ -142,13 +140,22 @@ export function cardsPage(cards: CardLayout): string {
           direction === 'up' ? '&uarr;' : '&darr;'
         }</button>`;
 
+      // The hero and the wallet card are drawn above the list in fixed
+      // positions, so offering to move them was offering nothing: the arrows
+      // saved a new order and the dashboard looked identical.
+      const fixed = !canReorder(id);
+
       return `<li class="cardrow">
             <span class="cardrow__name${hidden ? ' cardrow__name--off' : ''}">${esc(
               CARD_LABELS[id],
             )}</span>
             <span class="cardrow__actions">
-              ${move('up', first)}
-              ${move('down', last)}
+              ${
+                fixed
+                  ? '<span class="cardrow__fixed">Pinned to top</span>'
+                  : `${move('up', !canMove(cards.order, id, 'up'))}
+              ${move('down', !canMove(cards.order, id, 'down'))}`
+              }
               ${
                 canHide(id)
                   ? `<button class="chip${
