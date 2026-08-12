@@ -7,7 +7,7 @@
  * Nothing under /api/, no login page, and no redirect is ever stored.
  */
 
-var VERSION = 'v3';
+var VERSION = 'v4';
 var STATIC_CACHE = 'static-' + VERSION;
 var PAGE_CACHE = 'page-' + VERSION;
 var PAGE_KEY = '/';

@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { classifyAll, type ClassifiableTransaction, type Classified } from '../src/classify.js';
-import { buildCommitments, nextUp, totalCommitments } from '../src/commitments.js';
+import { buildCommitments, totalCommitments, type CommitmentStatus } from '../src/commitments.js';
 import { getRules } from '../src/rules.js';
 import { normalizeDescription, toCents } from '../src/normalize.js';
 
@@ -134,14 +134,24 @@ describe('commitments', () => {
   });
 });
 
-describe('next up', () => {
+/**
+ * The dashboard no longer renders a "next up" card, but every commitment row
+ * still prints its own projected date, so the projection itself is live code.
+ * These assert it through the shipped path instead of the deleted accessor.
+ */
+const soonestOf = (items: CommitmentStatus[]): CommitmentStatus | null =>
+  items
+    .filter((item) => item.nextDueDate !== null && (item.daysUntilDue ?? -1) >= 0)
+    .sort((a, b) => (a.daysUntilDue ?? 0) - (b.daysUntilDue ?? 0))[0] ?? null;
+
+describe('due-date projection', () => {
   it('picks the soonest future charge', () => {
     const txns = classified(
       raw('NETFLIX.COM', '-40.58', '2026-07-22'), // next 2026-08-22
       raw('PLANET FITNESS CLUB FEES', '-27.49', '2026-07-15'), // next 2026-08-15
       raw('GOOGLE ONE', '-5.48', '2026-07-28'), // next 2026-08-28
     );
-    const soonest = nextUp(buildCommitments(txns, TODAY, rules));
+    const soonest = soonestOf(buildCommitments(txns, TODAY, rules));
 
     // Planet Fitness bills on the 17th per the rules.
     assert.equal(soonest?.name, 'Planet Fitness');
@@ -152,13 +162,13 @@ describe('next up', () => {
     // A charge last seen in June must not project a July date that is already
     // past - it would vanish from Next up entirely.
     const txns = classified(raw('NETFLIX.COM', '-40.58', '2026-06-20'));
-    const next = nextUp(buildCommitments(txns, TODAY, rules));
+    const next = soonestOf(buildCommitments(txns, TODAY, rules));
     assert.equal(next?.name, 'Netflix');
     assert.ok(next!.nextDueDate! >= TODAY, `projection ${next!.nextDueDate} must not be in the past`);
   });
 
   it('returns nothing when there is no history to project from', () => {
-    assert.equal(nextUp(buildCommitments([], TODAY, rules)), null);
+    assert.equal(soonestOf(buildCommitments([], TODAY, rules)), null);
   });
 });
 

@@ -3,7 +3,6 @@ import { classifyAll, type Classification, type Classified } from './classify.js
 import { buildPaycheckView, resolveRefunds, type PaycheckView } from './budget.js';
 import {
   buildCommitments,
-  nextUp,
   totalCommitments,
   type CommitmentStatus,
   type CommitmentTotals,
@@ -52,33 +51,11 @@ export function isSpendDays(value: unknown): value is SpendDays {
   return (SPEND_DAYS as readonly number[]).includes(Number(value));
 }
 
-/**
- * Income against what is already spoken for.
- *
- * The commitments total was being computed and shown on its own, which says
- * how much goes out but not whether that is a lot. Against income it becomes
- * the only number that matters: what is left over before any of the week's
- * spending has happened.
- */
-export interface MonthlyShape {
-  /** Typical month's income, measured rather than budgeted. */
-  incomeCents: number;
-  committedCents: number;
-  freeCents: number;
-  /** Share of income already promised, 0-100. */
-  committedPercent: number;
-  /** How many complete months the income figure is drawn from. */
-  sampleMonths: number;
-}
-
 export interface DashboardModel {
   today: string;
   paycheck: PaycheckView;
   commitments: CommitmentStatus[];
   totals: CommitmentTotals;
-  soonest: CommitmentStatus | null;
-  /** Everything due in the next 30 days, soonest first. */
-  shape: MonthlyShape;
   spending: SpendingBreakdown;
   spendDays: SpendDays;
   recent: Classified[];
@@ -305,57 +282,6 @@ export function needsReview(
   );
 }
 
-/**
- * A typical month, measured against what is already committed.
- *
- * The median, not the average: income here is freelance, tutoring and DoorDash,
- * so one unusually good month drags an average somewhere you cannot count on.
- * The point of this number is what you can rely on, which is the middle month
- * rather than the mean of a lumpy set.
- *
- * Whole months only. A window that starts or ends mid-month contributes a half
- * month of income and would read as a lean one.
- */
-export function monthlyShape(
-  classified: Classified[],
-  totals: CommitmentTotals,
-  today = toYmd(),
-): MonthlyShape {
-  // Every month the data covers, seeded at zero — not only the months that
-  // happened to earn. Building the set from income rows alone made a month with
-  // spending and no income vanish rather than count as the lean month it was,
-  // which flatters the median exactly when it matters most.
-  const months = new Map<string, number>();
-  for (const transaction of classified) months.set(transaction.date.slice(0, 7), 0);
-  for (const transaction of classified) {
-    if (transaction.classification !== 'income') continue;
-    const month = transaction.date.slice(0, 7);
-    months.set(month, (months.get(month) ?? 0) + transaction.amountCents);
-  }
-
-  // The month in progress has not finished earning yet.
-  months.delete(today.slice(0, 7));
-
-  // The earliest month is only partial unless history happens to begin on the
-  // 1st, and there is no way to tell from transactions alone — so drop it.
-  const ordered = [...months.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  if (ordered.length > 1) ordered.shift();
-
-  // A month that earned nothing stays in: it is a real outcome for irregular
-  // income and the median is what absorbs it.
-  const amounts = ordered.map(([, cents]) => Math.max(0, cents));
-  const incomeCents = amounts.length === 0 ? 0 : median(amounts);
-  const committedCents = totals.totalPerMonthCents;
-
-  return {
-    incomeCents,
-    committedCents,
-    freeCents: incomeCents - committedCents,
-    committedPercent:
-      incomeCents <= 0 ? 0 : Math.min(100, Math.round((committedCents / incomeCents) * 100)),
-    sampleMonths: amounts.length,
-  };
-}
 
 function summarise(transactions: Classified[], limit: number): SpendingSlice[] {
   const byLabel = new Map<string, SpendingSlice>();
@@ -435,8 +361,6 @@ export function buildDashboard(
     paycheck: buildPaycheckView(today, classified, rules),
     commitments,
     totals: totalCommitments(commitments),
-    soonest: nextUp(commitments),
-    shape: monthlyShape(classified, totalCommitments(commitments)),
     spending: buildSpending(classified, today, spendDays),
     spendDays,
     // Always the most recent N; "place" changes how they are grouped for

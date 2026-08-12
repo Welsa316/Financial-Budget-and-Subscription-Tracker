@@ -166,11 +166,6 @@ export function cardsPage(cards: CardLayout): string {
   const body = `    <main class="wrap" id="main">
       <section class="card">
         <h2 class="card__title">Cards</h2>
-        <p class="card__lede">
-          What the dashboard shows, and in what order. The paycheck stays put, and
-          the sync card and connection warnings are not here — those are how this
-          tells you it might be out of date.
-        </p>
         <form method="post" action="/cards">
           <ul class="cardrows">
           ${rows}
@@ -199,5 +194,13 @@ export function errorPage(status: number, message: string): string {
 export type { AccountRow, DashboardViewData } from './views/dashboard.js';
 
 export function dashboardPage(data: DashboardViewData): string {
-  return layout({ title: 'Finance', body: dashboardBody(data), scripts: ['/static/app.js'] });
+  return layout({
+    title: 'Finance',
+    body: dashboardBody(data),
+    scripts: ['/static/app.js'],
+    // The desktop rail-and-grid layout keys off this class. Every other page
+    // is a single centred column and must never inherit it - /cards rendered
+    // one word per line when the body grid applied to a page with no rail.
+    bodyClass: 'body--dash',
+  });
 }

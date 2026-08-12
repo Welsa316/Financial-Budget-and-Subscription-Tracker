@@ -2,8 +2,8 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { classifyOne, type ClassifiableTransaction, type Classified } from '../src/classify.js';
 import { buildPaycheckView } from '../src/budget.js';
-import { buildCommitments, nextUp, totalCommitments } from '../src/commitments.js';
-import { buildSpending, monthlyShape } from '../src/dashboard.js';
+import { buildCommitments, totalCommitments } from '../src/commitments.js';
+import { buildSpending } from '../src/dashboard.js';
 import { dashboardBody, type DashboardViewData } from '../src/views/dashboard.js';
 import { CARD_IDS, defaultLayout, type CardId } from '../src/layout.js';
 import { getRules } from '../src/rules.js';
@@ -45,8 +45,6 @@ function render(
     paycheck: buildPaycheckView(TODAY, transactions, rules),
     commitments,
     totals: totalCommitments(commitments),
-    soonest: nextUp(commitments),
-    shape: monthlyShape(transactions, totalCommitments(commitments), TODAY),
     spending: buildSpending(transactions, TODAY),
     spendDays: 30,
     recent: transactions,
@@ -372,6 +370,23 @@ describe('rows', () => {
     assert.ok(!render({}, txns).includes('class="wallet"'), 'no account, no card');
   });
 
+  it('shows the Chase mark even when only the account name says Chase', () => {
+    // The live institution field is whatever SimpleFIN reports - the mark
+    // vanished in production because it was gated on institution alone.
+    const html = render(
+      {
+        accounts: [
+          { id: 'a', name: 'Chase Total Checking', institution: null, available_cents: 100, ledger_cents: 100 },
+        ],
+      },
+      txns,
+    );
+    const brand = html.match(/<span class="bankcard__brand"[\s\S]*?<\/span>/);
+    assert.ok(brand, 'brand block renders');
+    assert.match(brand![0]!, /<b>CHASE<\/b>/, 'wordmark');
+    assert.match(brand![0]!, /<svg viewBox="0 0 24 24">/, 'octagon');
+  });
+
   it('keeps every row shut except the queue, which is there to be worked', () => {
     const withReview = render(
       { review: [{ transaction: txns[1]!, reason: 'first-time', detail: 'x' }] },
@@ -406,10 +421,50 @@ describe('rows', () => {
 describe('transactions by category', () => {
   const txns = [
     make('Card Purchase 08/10 Circle K # 07238 Kenner LA', '-20.00', '2026-08-10'),
+    make('Card Purchase 08/09 Circle K # 07238 Kenner LA', '-18.00', '2026-08-09'),
+    make('Card Purchase 08/08 Circle K # 07238 Kenner LA', '-16.00', '2026-08-08'),
+    make('Card Purchase 08/07 Shell Oil 57443210 LA', '-14.00', '2026-08-07'),
+    make('Card Purchase 08/06 Racetrac 2430 Harahan LA', '-12.00', '2026-08-06'),
     make('Card Purchase 08/10 Sonic Drive IN #4342 LA', '-8.50', '2026-08-10'),
     make('Card Purchase 08/09 Some Brand New Store Kenner LA', '-12.00', '2026-08-09'),
     make('DOORDASH INC PAYMENT', '300.00', '2026-08-08'),
   ];
+
+  /** A catcard's full markup: from its opening tag to the next card or the
+      list's end - a lazy match to the first </li> stops inside the first
+      transaction row. */
+  const cardFor = (html: string, slug: string): string | null => {
+    const start = html.indexOf(`<li class="catcard" id="cat-${slug}">`);
+    if (start === -1) return null;
+    const next = html.indexOf('<li class="catcard"', start + 1);
+    return html.slice(start, next === -1 ? html.indexOf('</ul>', start) : next);
+  };
+
+  it('renders each category as a card with the first charges in the open', () => {
+    const html = render({ recentSort: 'category' }, txns);
+    const inner = cardFor(html, 'gas-convenience');
+    assert.ok(inner, 'the gas cluster is a card');
+    const beforeMore = inner!.split('catcard__more')[0]!;
+    // Three visible without touching anything; the other two behind the reveal.
+    assert.equal([...beforeMore.matchAll(/class="txn\b/g)].length, 3, 'three charges in the open');
+    // Behavioural, not structural: counting rows would still pass if those
+    // three were wrapped back in a collapsed <details>, which is exactly the
+    // "tappable instead of visible" regression this view was rebuilt to fix.
+    // Each row carries its own reclassify <details>, so the invariant is that
+    // nothing gates the list BETWEEN the head and the first row.
+    const upToRows = beforeMore.slice(0, beforeMore.indexOf('<ul class="txns">'));
+    assert.doesNotMatch(upToRows, /<details|<summary/, 'nothing gates the visible charges');
+    assert.match(inner!, />Show 2 more</, 'the rest behind one reveal');
+    assert.match(inner!, /catcard__name">Gas &amp; convenience|catcard__name">Gas & convenience/, 'named head');
+    assert.match(inner!, /\$80\.00 · 5 transactions/, 'the head carries the total');
+  });
+
+  it('shows no reveal when a category has three or fewer charges', () => {
+    const html = render({ recentSort: 'category' }, txns);
+    const eating = cardFor(html, 'eating-out');
+    assert.ok(eating, 'eating out renders');
+    assert.doesNotMatch(eating!, /Show \d+ more/, 'nothing to reveal');
+  });
 
   it('clusters by category with Uncategorized pinned last', () => {
     const html = render({ recentSort: 'category' }, txns);
@@ -463,5 +518,34 @@ describe('transactions by day', () => {
 
   it('does not day-group the by-place view, which groups by merchant', () => {
     assert.equal(dayHeads(render({ recentSort: 'place' }, txns)).length, 0);
+  });
+});
+
+/**
+ * The card mark is gated on a name test, and a bare substring match for
+ * "chase" also matches "purchase" — which would brand an unrelated account.
+ */
+describe('the card mark', () => {
+  const txns = [make('DOORDASH INC PAYMENT', '900.00', '2026-08-08')];
+  const withAccount = (name: string, institution: string | null): string =>
+    render(
+      { accounts: [{ id: 'a', name, institution, available_cents: 100, ledger_cents: 100 }] },
+      txns,
+    );
+
+  it('does not brand an account whose name merely contains "purchase"', () => {
+    const html = withAccount('Purchases Account', null);
+    const brand = html.match(/<span class="bankcard__brand"[\s\S]*?<\/span>/)![0]!;
+    assert.doesNotMatch(brand, /<b>CHASE<\/b>/, 'no Chase wordmark');
+    assert.doesNotMatch(brand, /<svg/, 'no octagon');
+    assert.match(brand, /PURCHASES ACCOUNT/, 'it names itself instead');
+  });
+
+  it('still brands a real Chase account from either field', () => {
+    for (const html of [withAccount('Total Checking', 'Chase'), withAccount('Chase Total Checking', null)]) {
+      const brand = html.match(/<span class="bankcard__brand"[\s\S]*?<\/span>/)![0]!;
+      assert.match(brand, /<b>CHASE<\/b>/);
+      assert.match(brand, /<svg/);
+    }
   });
 });

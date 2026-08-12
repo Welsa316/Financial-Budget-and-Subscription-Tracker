@@ -211,36 +211,3 @@ export function totalCommitments(commitments: CommitmentStatus[]): CommitmentTot
     essentialsCount: essentials.length,
   };
 }
-
-/**
- * The soonest upcoming charge, projected from the last matching one rolled
- * forward by its cadence. Anything already overdue is skipped — a projection
- * that is in the past says the charge has not landed, not that it is "next".
- */
-export function nextUp(commitments: CommitmentStatus[]): CommitmentStatus | null {
-  return upcoming(commitments)[0] ?? null;
-}
-
-/**
- * Everything due within the window, soonest first.
- *
- * The due dates were already being computed for every commitment and then all
- * but one thrown away. Knowing only the next charge answers "what is next" but
- * not "what is going out before Friday", which is the question that decides
- * whether this week's money is actually spendable.
- */
-export function upcoming(commitments: CommitmentStatus[], withinDays = 30): CommitmentStatus[] {
-  return commitments
-    .filter(
-      (item) =>
-        item.nextDueDate !== null &&
-        (item.daysUntilDue ?? -1) >= 0 &&
-        (item.daysUntilDue ?? Infinity) <= withinDays,
-    )
-    .sort(
-      (a, b) =>
-        (a.daysUntilDue ?? 0) - (b.daysUntilDue ?? 0) ||
-        b.expectedCents - a.expectedCents ||
-        a.name.localeCompare(b.name),
-    );
-}

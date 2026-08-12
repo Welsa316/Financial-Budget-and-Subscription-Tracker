@@ -17,7 +17,6 @@ export const CARD_IDS = [
   'paycheck',
   'review',
   'balances',
-  'shape',
   'commitments',
   'spending',
   'transactions',
@@ -29,7 +28,6 @@ export const CARD_LABELS: Record<CardId, string> = {
   paycheck: 'Friday paycheck',
   review: 'Needs a look',
   balances: 'Available to spend',
-  shape: 'A typical month',
   commitments: 'Commitments',
   spending: 'Last 30 days',
   transactions: 'Recent transactions',
@@ -58,7 +56,6 @@ export const CARD_GROUP: Record<CardId, GroupId> = {
   // The balance renders as the wallet card, outside every group; the id
   // stays so it can still be hidden from /cards.
   balances: 'coming',
-  shape: 'coming',
   commitments: 'coming',
   spending: 'activity',
   transactions: 'activity',
@@ -73,7 +70,6 @@ export const CARD_ICONS: Record<CardId, string> = {
   paycheck: 'M3 7h18v10H3zM12 10.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3',
   review: 'M12 3.5 21 20H3zM12 10v4M12 16.5v.5',
   balances: 'M4 6h16v12H4zM4 10h16M8 14h4',
-  shape: 'M12 3a9 9 0 1 0 9 9h-9z',
   commitments: 'M4 5h13l3 3v11H4zM8 5v5h7V5M8 15h8',
   spending: 'M4 20V11m5 9V5m5 15v-6m5 6V8',
   transactions: 'M4 8h13l-3-3M20 16H7l3 3',

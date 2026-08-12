@@ -572,12 +572,6 @@ a.spent__link:hover .spent__label {
   color: var(--negative);
 }
 
-.card__lede {
-  margin-bottom: 0.9rem;
-  font-size: 0.9375rem;
-  color: var(--ink-2);
-}
-
 /* ---------- Spending split ---------- */
 
 .split {
@@ -964,10 +958,6 @@ a.spent__link:hover .spent__label {
 .tag--manual {
   background: var(--ink);
   color: var(--surface);
-}
-
-.card__hint--left {
-  text-align: left;
 }
 
 .footer {
@@ -1743,7 +1733,10 @@ body:has(.offline-banner) .topbar {
    ========================================================================== */
 
 @media (min-width: 900px) {
-  body {
+  /* Only the dashboard has the rail; a page without one (like /cards) must
+     never inherit this grid - it once crushed that page into the rail column,
+     one word per line. */
+  body.body--dash {
     display: grid;
     grid-template-columns: 15rem minmax(0, 1fr);
     align-items: start;
@@ -1780,7 +1773,7 @@ body:has(.offline-banner) .topbar {
   }
 
   /* Two columns, capped so it never stretches across a 4K panel. */
-  .wrap {
+  .body--dash .wrap {
     max-width: 68rem;
     margin: 0;
     padding: 1.6rem 2rem 4rem;
@@ -1960,7 +1953,7 @@ body:has(.offline-banner) .topbar {
 }
 
 @media (min-width: 1400px) {
-  .wrap {
+  .body--dash .wrap {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     max-width: 92rem;
   }
@@ -2244,4 +2237,108 @@ details > .bankcard:hover {
 
 .wallet__body {
   padding: 0.8rem 0.4rem 0;
+}
+
+/* ---------- Category clusters ----------
+   Each category is its own card: mark, name, total, the first three charges
+   already visible, the rest behind one reveal. The first pass used the
+   collapsed by-place rows and read as the same list reordered. Monochrome on
+   purpose - the mint mark and the figures carry it, not per-category hues. */
+
+.catcards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.catcard {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem 0.55rem;
+}
+
+.catcard__head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.catcard__icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  flex: none;
+}
+
+.catcard__icon svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.catcard__icon--none {
+  background: var(--surface-sunk);
+}
+
+.catcard__names {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.catcard__name {
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+
+.catcard__meta {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.catcard__meta--in {
+  color: var(--positive);
+}
+
+/* One-way reveal, like the reference: once the rest is showing there is
+   nothing left for the control to say. Desktop scripting opens it the same
+   way it flattens everything else. */
+.catcard__more > summary {
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  background: var(--surface-sunk);
+  border-radius: 9px;
+  padding: 0.6rem;
+  margin: 0.55rem 0 0.45rem;
+  cursor: pointer;
+  list-style: none;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.catcard__more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.catcard__more > summary:hover {
+  color: var(--ink);
+}
+
+.catcard__more[open] > summary {
+  display: none;
 }

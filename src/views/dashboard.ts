@@ -213,50 +213,6 @@ function balanceDetail(account: AccountRow, trustworthy: boolean): string {
         </dl>`;
 }
 
-/**
- * Income against what is already spoken for — the one number that says whether
- * the commitments total is a lot or not.
- */
-function shapeDetail(data: DashboardViewData): string {
-  const { shape, totals } = data;
-  if (shape.sampleMonths === 0) return '';
-
-  const overcommitted = shape.freeCents < 0;
-
-  void overcommitted;
-  return `        <p class="card__lede">
-          left after everything already committed, on a median month of
-          <span class="num">${esc(money(shape.incomeCents))}</span>.
-        </p>
-
-        <div class="split" role="img" aria-label="Committed ${shape.committedPercent}% of a typical month's income">
-          <span class="split__bills w-${shape.committedPercent}"></span>
-          <span class="split__disc w-${100 - shape.committedPercent}"></span>
-        </div>
-        <div class="split__legend">
-          <span><i class="swatch swatch--bills"></i>Committed <b class="num">${esc(
-            moneyAbs(shape.committedCents),
-          )}</b></span>
-          <span><i class="swatch swatch--disc"></i>Everything else <b class="num">${esc(
-            money(shape.freeCents),
-          )}</b></span>
-        </div>
-
-        <dl class="stats">
-          <div class="stats__row"><dt>Essentials</dt><dd class="num">${esc(
-            moneyAbs(totals.essentialsPerMonthCents),
-          )}</dd></div>
-          <div class="stats__row"><dt>Subscriptions</dt><dd class="num">${esc(
-            moneyAbs(totals.subscriptionsPerMonthCents),
-          )}</dd></div>
-        </dl>
-        <p class="card__hint card__hint--left">
-          Median of ${shape.sampleMonths} complete month${
-            shape.sampleMonths === 1 ? '' : 's'
-          }, not the average — one good month should not
-          set an expectation you cannot count on.
-        </p>`;
-}
 
 // --- 4. Monthly commitments ----------------------------------------------
 
@@ -334,7 +290,6 @@ function commitmentsDetail(data: DashboardViewData): string {
   const essentials = data.commitments.filter((item) => item.type === 'essential');
   const subscriptions = data.commitments.filter((item) => item.type === 'subscription');
   const { totals } = data;
-  const allEssentialsPaid = totals.essentialsPaidThisMonth === totals.essentialsCount;
 
   // Only the essentials carry a paid/unpaid state — a subscription bills
   // whether or not you looked at it, so counting those as "progress" would be
@@ -346,13 +301,7 @@ function commitmentsDetail(data: DashboardViewData): string {
   const percent = essentialTotal === 0 ? 0 : Math.min(100, Math.round((paidCents / essentialTotal) * 100));
   const leftCents = Math.max(0, essentialTotal - paidCents);
 
-  return `        <p class="card__lede">
-          <strong class="num">${esc(moneyAbs(totals.totalPerMonthCents))}</strong> a month committed.
-          <span class="${allEssentialsPaid ? '' : 'is-warning'}">${
-            totals.essentialsPaidThisMonth
-          } of ${totals.essentialsCount} essentials paid this month.</span>
-        </p>
-
+  return `
         <div class="progress" role="img"
              aria-label="${percent}% of this month's essentials paid">
           <span class="progress__fill w-${percent}"></span>
@@ -581,17 +530,8 @@ function reviewDetail(data: DashboardViewData): string {
   const items = data.review;
   if (items.length === 0) return '';
 
-  const total = items.reduce(
-    (sum, item) => (item.transaction.amountCents < 0 ? sum + Math.abs(item.transaction.amountCents) : sum),
-    0,
-  );
 
-  return `        <p class="card__lede">
-          ${esc(moneyAbs(total))} worth confirming: places you have not spent at before,
-          amounts out of line with a merchant's own history, and money in that is not
-          recognised income. Anything wrong here is moving the Friday number.
-        </p>
-        <ul class="txns">
+  return `        <ul class="txns">
           ${items
             .map(
               (item) => `<li class="txn">
@@ -656,6 +596,72 @@ function groupByPlace(transactions: Classified[]): PlaceGroup[] {
   );
 }
 
+/**
+ * One stroked mark per category, same 24-unit grid and stroke style as the
+ * card icons so the page keeps one icon language. Keyed by name: a category
+ * added to the rules without a mark here gets a plain disc, never a guessed
+ * glyph - wrong-but-confident reads worse than plainly not knowing.
+ */
+const CATEGORY_ICONS: Record<string, string> = {
+  'Gas & convenience': 'M5 3h9v18H5zM14 8h2l3 3v7a1.5 1.5 0 0 1-3 0v-7M7 6h5v4H7z',
+  Groceries: 'M4 6h2l2 10h10l2-7H7M10 20.5h.01M16 20.5h.01',
+  'Pharmacy & health': 'M9 4h6v5h5v6h-5v5H9v-5H4V9h5z',
+  'Eating out': 'M6 3v8M9 3v8M7.5 3v18M16 3c-1.5 1-2.5 3-2.5 5.5 0 2 1 3.5 2.5 3.5s2.5-1.5 2.5-3.5C18.5 6 17.5 4 16 3M16 12v9',
+  Games: 'M7 8h10a4 4 0 0 1 4 4v3a2 2 0 0 1-3.6 1.2L15.5 14h-7l-1.9 2.2A2 2 0 0 1 3 15v-3a4 4 0 0 1 4-4M7.5 10.5v3M6 12h3M16 11h.01M18 13h.01',
+  'Software & AI': 'M9 5 4 12l5 7M15 5l5 7-5 7',
+  'Pay later': 'M3 6h18v5H3zM3 11h18v7H3zM7 15h5',
+  Shopping: 'M6 8h12l-1 12H7zM9 8V6a3 3 0 0 1 6 0v2',
+  'Sent to people': 'M4 12h14M13 6l6 6-6 6',
+  Giving: 'M12 20 5.5 13.5a4 4 0 0 1 5.5-5.8l1 .9 1-.9a4 4 0 0 1 5.5 5.8z',
+  Fees: 'M6 3h12v18l-2-1.5-2 1.5-2-1.5L10 21l-2-1.5L6 21zM9 8h6M9 12h4',
+  Subscriptions: 'M4 5h13l3 3v11H4zM8 5v5h7V5M8 15h8',
+  Essentials: 'M3 11 12 4l9 7M6 9.5V20h12V9.5',
+  Income: 'M12 4v10M8 10l4 4 4-4M5 18h14',
+  'Transfers & ignored': 'M4 8h13l-3-3M20 16H7l3 3',
+};
+
+/**
+ * A category as its own card: mark, name, total, the first three charges in
+ * the open, and the rest behind one "Show N more". The first pass rendered
+ * categories with the collapsed by-place rows, and on a phone that read as
+ * the same list reordered - the grouping has to be visible, not tappable.
+ */
+function categoryGroup(group: PlaceGroup): string {
+  const count = group.transactions.length;
+  const net = group.outCents - group.inCents;
+  const incoming = net < 0;
+  const icon = CATEGORY_ICONS[group.label];
+  const shown = group.transactions.slice(0, 3);
+  const rest = group.transactions.slice(3);
+
+  return `<li class="catcard" id="cat-${esc(placeSlug(group.label))}">
+            <div class="catcard__head">
+              <span class="catcard__icon${icon ? '' : ' catcard__icon--none'}" aria-hidden="true">${
+                icon ? `<svg viewBox="0 0 24 24"><path d="${icon}" /></svg>` : ''
+              }</span>
+              <span class="catcard__names">
+                <span class="catcard__name">${esc(group.label)}</span>
+                <span class="catcard__meta num${incoming ? ' catcard__meta--in' : ''}">${
+                  incoming ? '+' : ''
+                }${esc(moneyAbs(net))} · ${count} transaction${count === 1 ? '' : 's'}</span>
+              </span>
+            </div>
+            <ul class="txns">
+              ${shown.map((row) => transactionRow(row)).join('\n              ')}
+            </ul>
+            ${
+              rest.length
+                ? `<details class="catcard__more">
+              <summary>Show ${rest.length} more</summary>
+              <ul class="txns">
+                ${rest.map((row) => transactionRow(row)).join('\n                ')}
+              </ul>
+            </details>`
+                : ''
+            }
+          </li>`;
+}
+
 function groupByCategory(transactions: Classified[]): PlaceGroup[] {
   const groups = new Map<string, PlaceGroup>();
 
@@ -679,7 +685,7 @@ function groupByCategory(transactions: Classified[]): PlaceGroup[] {
   });
 }
 
-function placeGroup(group: PlaceGroup, anchorPrefix = 'place'): string {
+function placeGroup(group: PlaceGroup): string {
   const count = group.transactions.length;
   const net = group.outCents - group.inCents;
   // A place that paid you more than you paid it — wages, or a full refund.
@@ -707,7 +713,7 @@ function placeGroup(group: PlaceGroup, anchorPrefix = 'place'): string {
                   incoming ? '+' : ''
                 }${esc(moneyAbs(net))}</span>
               </summary>
-              <ul class="txns" id="${anchorPrefix}-${esc(placeSlug(group.label))}">
+              <ul class="txns" id="place-${esc(placeSlug(group.label))}">
                 ${group.transactions.map((row) => transactionRow(row)).join('\n                ')}
               </ul>
             </details>
@@ -770,22 +776,15 @@ function transactionsDetail(data: DashboardViewData): string {
   const body =
     sort === 'place'
       ? `<ul class="places">
-          ${groupByPlace(data.recent).map((group) => placeGroup(group)).join('\n          ')}
+          ${groupByPlace(data.recent).map(placeGroup).join('\n          ')}
         </ul>`
       : sort === 'category'
-        ? `<ul class="places">
-          ${groupByCategory(data.recent).map((group) => placeGroup(group, 'cat')).join('\n          ')}
+        ? `<ul class="catcards">
+          ${groupByCategory(data.recent).map(categoryGroup).join('\n          ')}
         </ul>`
         : byDay(data.recent, data.today);
 
   return `        ${toggle}
-        <p class="card__lede">${
-          sort === 'place'
-            ? `The last ${data.recent.length} transactions, gathered by where the money went, biggest first.`
-            : sort === 'category'
-              ? `The last ${data.recent.length} transactions by category. Anything in Uncategorized needs a new pattern in the rules.`
-              : 'Tap any row to see why it was classified that way, and change it.'
-        }</p>
         ${
           data.recent.length === 0
             ? '<p class="card__body">Nothing yet. Run a sync once SimpleFIN is connected.</p>'
@@ -833,7 +832,12 @@ interface Row {
  */
 function bankCardHead(account: AccountRow, balance: number | null): string {
   const mark = BRAND_ICONS['chase'];
-  const chase = !!account.institution && account.institution.toLowerCase().includes('chase');
+  // The institution field is whatever SimpleFIN reports, which on the live
+  // account is not the word "Chase" - the account NAME is where it reliably
+  // appears, so both are checked. Word-bounded on purpose: a bare substring
+  // test also matches "purchase", which would brand any account whose name
+  // contains that word.
+  const chase = /\bchase\b/.test(`${account.institution ?? ''} ${account.name}`.toLowerCase());
   return `<summary class="bankcard">
                 <span class="bankcard__brand" aria-hidden="true">${
                   chase && mark
@@ -878,14 +882,6 @@ function buildRows(data: DashboardViewData, trustworthy: boolean): Row[] {
   );
 
   const rows: Row[] = [
-    {
-      id: 'shape',
-      value: data.shape.sampleMonths === 0 ? '—' : money(data.shape.freeCents),
-      valueHtml:
-        data.shape.sampleMonths === 0 ? undefined : moneyParts(data.shape.freeCents),
-      tone: data.shape.freeCents < 0 ? 'negative' : undefined,
-      detail: shapeDetail(data),
-    },
     {
       id: 'commitments',
       value: `${moneyAbs(data.totals.totalPerMonthCents)}/mo`,
