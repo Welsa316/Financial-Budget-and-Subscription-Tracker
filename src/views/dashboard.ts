@@ -374,10 +374,13 @@ function transactionRow(transaction: Classified): string {
     .join('\n                ');
 
   // The id is the anchor target for /override's redirect and for the "already
-  // spent" drill-down. Without it both scroll nowhere.
-  return `<li class="txn" id="txn-${esc(transaction.id)}">
+  // spent" drill-down. It sits on the summary rather than the li on purpose:
+  // a fragment pointing INSIDE a closed <details> makes the browser open it,
+  // so following a link lands on the row with the reclassify buttons already
+  // showing. On the li it scrolled to a row you then had to tap to expand.
+  return `<li class="txn">
             <details class="txn__details">
-              <summary class="txn__summary">
+              <summary class="txn__summary" id="txn-${esc(transaction.id)}">
                 <span class="txn__main">
                   <span class="txn__desc">${esc(transaction.merchant ?? transaction.description)}</span>
                   <span class="txn__meta">

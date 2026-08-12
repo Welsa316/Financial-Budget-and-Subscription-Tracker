@@ -136,6 +136,20 @@ describe('"already spent" is auditable', () => {
     }
   });
 
+  /**
+   * A fragment pointing INSIDE a closed <details> makes the browser open it.
+   * With the id on the wrapping <li> the link scrolled to a row that was still
+   * collapsed, so reclassifying a charge took an extra tap to find the buttons.
+   */
+  it('lands on a row with the reclassify buttons already showing', () => {
+    const html = render({}, txns);
+    const row = html.slice(html.indexOf('<li class="txn"'));
+    const details = row.indexOf('<details');
+    const anchor = row.indexOf('id="txn-t2"');
+    assert.ok(anchor > details && details !== -1, 'the anchor sits inside the details, not outside');
+    assert.doesNotMatch(html, /<li class="txn" id=/, 'not on the wrapper, where it cannot open it');
+  });
+
   it('lists a charge that is not in Recent, but does not link it nowhere', () => {
     // Recent is capped, so a charge in the total may have no row to jump to.
     const html = render({ recent: [] }, txns);
