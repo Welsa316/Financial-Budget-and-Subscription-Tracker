@@ -230,8 +230,12 @@ router.post('/api/import', (req: Request, res: Response) => {
   const now = new Date().toISOString();
   // Same date and amount, then description similarity — a statement and the API
   // word the same charge differently, so exact-key matching misses duplicates.
+  // Scoped to the account being imported into: without it, a statement row for
+  // one account matched an identical charge on another and was dropped as a
+  // duplicate, so the real charge was never recorded anywhere.
   const sameDateAndAmount = db.prepare(
-    'SELECT id, normalized_description FROM transactions WHERE date = ? AND amount_cents = ?',
+    `SELECT id, normalized_description FROM transactions
+     WHERE account_id = ? AND date = ? AND amount_cents = ?`,
   );
   const insert = db.prepare(
     `INSERT INTO transactions (
@@ -277,7 +281,7 @@ router.post('/api/import', (req: Request, res: Response) => {
       const normalized = normalizeDescription(description);
 
       const match = (
-        sameDateAndAmount.all(date, amountCents) as Array<{
+        sameDateAndAmount.all(accountId, date, amountCents) as Array<{
           id: string;
           normalized_description: string;
         }>

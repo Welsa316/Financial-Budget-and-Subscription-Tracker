@@ -372,6 +372,39 @@ describe('sync: pending settles', () => {
     assert.equal(count, 4, 'nothing may be silently merged away');
   });
 
+  it('does not let an approximate match steal the row another charge matches exactly', async () => {
+    // Two holds at one merchant. Only the $58 one settles. Matching pending by
+    // pending, the $50 hold is looked at first, sees a single candidate, and
+    // takes it on the tip rule — leaving the $58 hold beside its own settled
+    // charge, double-counted, and the $50 hold deleted as though it settled.
+    mock.state.transactions = [
+      { id: 'p50', account_id: 'acc_1', amount: '-50.00', posted: 0, transacted_at: agoSec(3), description: 'CAFE DU MONDE', pending: true },
+      { id: 'p58', account_id: 'acc_1', amount: '-58.00', posted: 0, transacted_at: agoSec(3), description: 'CAFE DU MONDE', pending: true },
+    ];
+    await runSync('manual');
+
+    mock.state.transactions = [
+      { id: 'settled58', account_id: 'acc_1', amount: '-58.00', posted: agoSec(1), description: 'CAFE DU MONDE' },
+    ];
+    await runSync('manual');
+
+    const rows = getDb()
+      .prepare('SELECT id, amount_cents, status, settled_from FROM transactions ORDER BY amount_cents')
+      .all() as Array<{ id: string; amount_cents: number; status: string; settled_from: string | null }>;
+
+    const settled = rows.find((r) => r.id.endsWith('settled58'));
+    assert.ok(settled, 'the settled charge must exist');
+    assert.ok(
+      settled.settled_from?.endsWith('p58'),
+      `the $58 charge settled the $58 hold, not ${settled.settled_from}`,
+    );
+    assert.ok(
+      rows.some((r) => r.id.endsWith('p50') && r.status === 'pending'),
+      'the $50 hold is still outstanding and must survive',
+    );
+    assert.equal(rows.length, 2, 'one settled charge and one hold still open');
+  });
+
   it('does not settle a charge against a wildly different amount', async () => {
     mock.state.transactions = [
       { id: 'hold', account_id: 'acc_1', amount: '-1.00', posted: 0, transacted_at: agoSec(2), description: 'SHELL OIL 57443', pending: true },
@@ -403,6 +436,97 @@ describe('sync: pending settles', () => {
     );
     assert.equal(ids.length, 1);
     assert.ok(ids[0]!.endsWith('anchor'));
+  });
+
+  /**
+   * The sweep used to run inside the reconcile window, which starts five days
+   * before the oldest row just fetched. On an account whose recent activity is
+   * all recent, that window began after the stale rows and skipped exactly the
+   * ones it exists to remove.
+   */
+  it('drops an abandoned hold even when only recent activity comes back', async () => {
+    mock.state.transactions = [
+      { id: 'ghost', account_id: 'acc_1', amount: '-15.00', posted: 0, transacted_at: agoSec(20), description: 'CANCELLED HOLD', pending: true },
+      { id: 'old', account_id: 'acc_1', amount: '-9.00', posted: agoSec(25), description: 'REAL CHARGE' },
+    ];
+    await runSync('manual');
+
+    // The bank stops reporting the hold, and everything it does return is new.
+    mock.state.transactions = [
+      { id: 'fresh', account_id: 'acc_1', amount: '-4.00', posted: agoSec(1), description: 'COFFEE' },
+    ];
+    await runSync('manual');
+
+    const ids = (getDb().prepare('SELECT id FROM transactions').all() as Array<{ id: string }>).map(
+      (r) => r.id,
+    );
+    assert.ok(!ids.some((id) => id.endsWith('ghost')), 'the 20-day-old hold must be gone');
+    assert.ok(ids.some((id) => id.endsWith('old')), 'the real charge stays');
+  });
+
+  it('drops an abandoned hold on an account that returns nothing at all', async () => {
+    mock.state.transactions = [
+      { id: 'ghost', account_id: 'acc_1', amount: '-15.00', posted: 0, transacted_at: agoSec(20), description: 'CANCELLED HOLD', pending: true },
+    ];
+    await runSync('manual');
+    assert.equal((getDb().prepare('SELECT COUNT(*) AS n FROM transactions').get() as { n: number }).n, 1);
+
+    mock.state.transactions = [];
+    await runSync('manual');
+
+    assert.equal(
+      (getDb().prepare('SELECT COUNT(*) AS n FROM transactions').get() as { n: number }).n,
+      0,
+      'a quiet account still has to shed its holds',
+    );
+  });
+
+  it('keeps a hold when the sync reported warnings', async () => {
+    mock.state.transactions = [
+      { id: 'ghost', account_id: 'acc_1', amount: '-15.00', posted: 0, transacted_at: agoSec(20), description: 'CANCELLED HOLD', pending: true },
+    ];
+    await runSync('manual');
+
+    // An account SimpleFIN could not reach returns nothing plus a warning.
+    // Deleting real holds on the strength of that is how data disappears.
+    mock.state.transactions = [];
+    mock.state.errlist = [{ code: 'CONNECTION', msg: 'Connection to Chase needs attention' }];
+    await runSync('manual');
+
+    assert.equal(
+      (getDb().prepare('SELECT COUNT(*) AS n FROM transactions').get() as { n: number }).n,
+      1,
+      'an unreachable account is not evidence the hold was dropped',
+    );
+  });
+
+  it('does not delete another account\'s imported charge as a duplicate', async () => {
+    mock.state.accounts = [
+      { id: 'acc_1', name: 'Chase Total Checking', balance: '1310.02', 'available-balance': '1250.44' },
+      { id: 'acc_2', name: 'Capital One', balance: '400.00' },
+    ];
+    const stamp = new Date().toISOString();
+    getDb()
+      .prepare(
+        `INSERT INTO transactions (
+           id, account_id, date, amount_cents, description, normalized_description,
+           status, source, dedupe_key, first_seen_at, updated_at
+         ) VALUES ('imp_other', 'acc_2', ?, -500, 'CAFE DU MONDE', 'cafe du monde',
+                   'posted', 'import', 'k', ?, ?)`,
+      )
+      .run(agoYmd(2), stamp, stamp);
+
+    // The same charge, same day and amount, on the OTHER account.
+    mock.state.transactions = [
+      { id: 'c1', account_id: 'acc_1', amount: '-5.00', posted: agoSec(2), description: 'CAFE DU MONDE' },
+    ];
+    await runSync('manual');
+
+    const ids = (getDb().prepare('SELECT id FROM transactions').all() as Array<{ id: string }>).map(
+      (r) => r.id,
+    );
+    assert.ok(ids.includes('imp_other'), "acc_2's imported charge must survive acc_1 syncing");
+    assert.ok(ids.some((id) => id.endsWith('c1')));
   });
 
   it('keeps a recent pending charge that is briefly absent', async () => {

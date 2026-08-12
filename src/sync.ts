@@ -230,7 +230,45 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
       accountsSynced += 1;
 
       const fetched = account.transactions ?? [];
-      if (fetched.length === 0) continue;
+
+      /**
+       * Sheds holds the bank abandoned. Deliberately not scoped to the window
+       * the reconcile pass uses: that window is derived from the oldest row
+       * just fetched, so on a quiet account it started after the stale rows
+       * and excluded precisely the ones it exists to remove. An account that
+       * returned nothing at all skipped it entirely, and its holds inflated
+       * spending for good.
+       *
+       * Only runs on a clean response. Warnings mean SimpleFIN may have
+       * returned nothing for an account it could not reach, and deleting real
+       * holds on the strength of that is how data disappears.
+       */
+      const sweepStalePending = (stillReported: Set<string>): void => {
+        if (warnings.length > 0) return;
+        const cutoff = addDays(toYmd(), -STALE_PENDING_DAYS);
+        const abandoned = db
+          .prepare(
+            `SELECT id, date FROM transactions
+             WHERE account_id = ? AND status = 'pending' AND source = 'simplefin' AND date < ?`,
+          )
+          .all(account.id, cutoff) as Array<{ id: string; date: string }>;
+
+        const sweep = db.transaction((rows: Array<{ id: string; date: string }>) => {
+          for (const row of rows) {
+            if (stillReported.has(row.id)) continue; // SimpleFIN still reports it.
+            db.prepare('DELETE FROM overrides WHERE transaction_id = ?').run(row.id);
+            db.prepare('DELETE FROM transactions WHERE id = ?').run(row.id);
+            console.warn(`[sync] dropped stale pending ${row.id} (${row.date})`);
+          }
+        });
+        sweep(abandoned);
+      };
+
+      if (fetched.length === 0) {
+        // Nothing to reconcile against, but the holds still have to go.
+        sweepStalePending(new Set());
+        continue;
+      }
 
       const upsert = db.prepare(
         `INSERT INTO transactions (
@@ -253,9 +291,11 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
       // Matched on date and amount, then on description similarity rather than
       // an exact key. A statement and the API word the same charge differently,
       // and an exact-key match leaves the imported copy behind as a duplicate.
+      // Scoped to this account: without it, syncing one account deleted an
+      // identically-worded imported charge belonging to another.
       const findImported = db.prepare(
         `SELECT id, normalized_description FROM transactions
-         WHERE source = 'import' AND date = ? AND amount_cents = ? AND id != ?`,
+         WHERE source = 'import' AND account_id = ? AND date = ? AND amount_cents = ? AND id != ?`,
       );
       const deleteRow = db.prepare('DELETE FROM transactions WHERE id = ?');
       const moveOverride = db.prepare(
@@ -275,7 +315,7 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
           const normalized = normalizeDescription(description);
 
           // A statement import may already hold this charge under its own id.
-          const candidates = findImported.all(date, amountCents, id) as Array<{
+          const candidates = findImported.all(account.id, date, amountCents, id) as Array<{
             id: string;
             normalized_description: string;
           }>;
@@ -325,10 +365,11 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
       const claimed = new Set<string>();
 
       const reconcile = db.transaction((pendings: StoredPending[]) => {
-        for (const pending of pendings) {
-          if (returnedIds.has(pending.id)) continue; // SimpleFIN still reports it.
+        const outstanding = pendings.filter((pending) => !returnedIds.has(pending.id));
+        const matched = new Map<string, SimpleFinTransaction>();
 
-          const sameMerchant = postedRows.filter((posted) => {
+        const candidatesFor = (pending: StoredPending): SimpleFinTransaction[] =>
+          postedRows.filter((posted) => {
             if (claimed.has(rowId(account.id, posted.id))) return false;
             if (daysApart(transactionDate(posted), pending.date) > SETTLE_WINDOW_DAYS) return false;
             return descriptionsSimilar(
@@ -337,30 +378,47 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
             );
           });
 
-          // Exact amount first: unambiguous even when the merchant billed twice.
-          let match = sameMerchant.find(
+        const take = (pending: StoredPending, posted: SimpleFinTransaction): void => {
+          claimed.add(rowId(account.id, posted.id));
+          matched.set(pending.id, posted);
+        };
+
+        // Two passes over all the pendings, not one pass doing both tests.
+        // Settling by exact amount is certain; settling by growth is a guess.
+        // Interleaving them let a guess consume a posted row that a later
+        // pending matched to the cent — two holds at one merchant, only the
+        // larger settling, and the smaller would claim it on the tip rule.
+        for (const pending of outstanding) {
+          const exact = candidatesFor(pending).find(
             (posted) => toCents(posted.amount) === pending.amount_cents,
           );
+          if (exact) take(pending, exact);
+        }
 
-          // Then the tip / pre-authorisation case, but only when there is a
-          // single candidate. With two charges from the same merchant in the
-          // window there is no way to tell which one settled, and merging the
-          // wrong pair destroys a real charge — worse than counting one twice
-          // for a fortnight. Ambiguity is left to the stale sweep below.
-          if (!match && sameMerchant.length === 1) {
-            const only = sameMerchant[0]!;
-            const settled = toCents(only.amount);
-            const authorised = pending.amount_cents;
-            const sameDirection = settled < 0 === authorised < 0;
-            const grew =
-              Math.abs(settled) >= Math.abs(authorised) &&
-              Math.abs(settled) <= Math.abs(authorised) * SETTLE_MAX_GROWTH;
-            if (sameDirection && grew) match = only;
-          }
+        // The tip / pre-authorisation case, over whatever no exact match wanted,
+        // and only where a single candidate is left. With two charges from the
+        // same merchant still in play there is no way to tell which one settled,
+        // and merging the wrong pair destroys a real charge — worse than
+        // counting one twice for a fortnight. Ambiguity goes to the stale sweep.
+        for (const pending of outstanding) {
+          if (matched.has(pending.id)) continue;
+          const candidates = candidatesFor(pending);
+          if (candidates.length !== 1) continue;
 
+          const only = candidates[0]!;
+          const settled = toCents(only.amount);
+          const authorised = pending.amount_cents;
+          const sameDirection = settled < 0 === authorised < 0;
+          const grew =
+            Math.abs(settled) >= Math.abs(authorised) &&
+            Math.abs(settled) <= Math.abs(authorised) * SETTLE_MAX_GROWTH;
+          if (sameDirection && grew) take(pending, only);
+        }
+
+        for (const pending of outstanding) {
+          const match = matched.get(pending.id);
           if (match) {
             const matchId = rowId(account.id, match.id);
-            claimed.add(matchId);
             db.prepare('UPDATE transactions SET settled_from = ? WHERE id = ?').run(
               pending.id,
               matchId,
@@ -368,19 +426,11 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
             moveOverride.run(matchId, pending.id);
             deleteRow.run(pending.id);
             pendingSettled += 1;
-            // toYmd, not now.slice(0,10): `now` is a UTC instant, and after
-            // 19:00 in a US zone its date is already tomorrow. Comparing that
-            // against a zone-local transaction date made the evening cron
-            // delete pending charges a full day early.
-          } else if (daysApart(toYmd(), pending.date) > STALE_PENDING_DAYS) {
-            // Dropped authorisation. Leaving it would inflate spending forever.
-            db.prepare('DELETE FROM overrides WHERE transaction_id = ?').run(pending.id);
-            deleteRow.run(pending.id);
-            console.warn(`[sync] dropped stale pending ${pending.id} (${pending.date})`);
           }
         }
       });
       reconcile(stalePending);
+      sweepStalePending(returnedIds);
     }
 
     // SimpleFIN reports a broken bank link in errlist alongside HTTP 200, so a

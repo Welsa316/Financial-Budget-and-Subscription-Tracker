@@ -148,6 +148,41 @@ describe('statement import', () => {
     assert.equal(rowCount(), 2);
   });
 
+  it('does not mistake another account\'s charge for this one', async () => {
+    // Matching on date, amount and wording alone reached across accounts, so a
+    // Capital One charge was dropped because Chase had an identical one and the
+    // real charge was never recorded anywhere.
+    const stamp = new Date().toISOString();
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO accounts (id, name, institution, type, subtype, currency, created_at, updated_at)
+       VALUES ('acc_2', 'Capital One', 'Capital One', 'depository', 'checking', 'USD', ?, ?)`,
+    ).run(stamp, stamp);
+    db.prepare(
+      `INSERT INTO transactions (
+         id, account_id, date, amount_cents, description, normalized_description,
+         status, source, dedupe_key, first_seen_at, updated_at
+       ) VALUES ('sf_acc_1_1', 'acc_1', '2026-08-10', -500, 'CAFE DU MONDE',
+                 'cafe du monde', 'posted', 'simplefin', 'k', ?, ?)`,
+    ).run(stamp, stamp);
+
+    const response = await fetch(`${baseUrl}/api/import`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        accountId: 'acc_2',
+        transactions: [
+          { date: '2026-08-10', amountCents: -500, description: 'Card Purchase 08/10 Cafe Du Monde' },
+        ],
+      }),
+    });
+    const result = (await response.json()) as ImportResult;
+
+    assert.equal(result.inserted, 1, "the Capital One charge is not the Chase one");
+    assert.equal(result.duplicates, 0);
+    assert.equal(rowCount(), 2);
+  });
+
   it('rejects malformed rows without stopping the batch', async () => {
     const result = await postImport([
       { date: 'not-a-date', amountCents: -500, description: 'Bad row' },
