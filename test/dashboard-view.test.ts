@@ -47,6 +47,7 @@ function render(
     spending: buildSpending(transactions, TODAY),
     recent: transactions,
     recentSort: 'date',
+    review: [],
     transactionCount: transactions.length,
     pendingCount: transactions.filter((t) => t.pending).length,
     accounts: [],

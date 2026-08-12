@@ -2,7 +2,12 @@ import { esc, money, moneyAbs } from '../format.js';
 import { formatStamp, formatDayMonth, relativeDays } from '../time.js';
 import type { Classified } from '../classify.js';
 import type { CommitmentStatus } from '../commitments.js';
-import { placeLabel, type DashboardModel, type SpendingSlice } from '../dashboard.js';
+import {
+  placeLabel,
+  type DashboardModel,
+  type ReviewReason,
+  type SpendingSlice,
+} from '../dashboard.js';
 import type { SpentLine, WeekSummary } from '../budget.js';
 
 export interface AccountRow {
@@ -347,7 +352,8 @@ const CLASS_LABEL: Record<string, string> = {
   ignore: 'Ignored',
 };
 
-function transactionRow(transaction: Classified): string {
+/** Shared, so a charge is reclassified the same way wherever you find it. */
+function overrideForm(transaction: Classified): string {
   const options = (['bill', 'discretionary', 'income', 'ignore'] as const)
     .map(
       (value) =>
@@ -355,8 +361,20 @@ function transactionRow(transaction: Classified): string {
           transaction.classification === value ? 'chip--on' : ''
         }" type="submit" name="classification" value="${value}">${esc(CLASS_LABEL[value]!)}</button>`,
     )
-    .join('\n                ');
+    .join('\n                  ');
 
+  return `<form method="post" action="/override" class="txn__actions">
+                  <input type="hidden" name="id" value="${esc(transaction.id)}" />
+                  ${options}
+                  ${
+                    transaction.overridden
+                      ? '<button class="chip chip--clear" type="submit" name="classification" value="clear">Clear</button>'
+                      : ''
+                  }
+                </form>`;
+}
+
+function transactionRow(transaction: Classified): string {
   // The id is the anchor target for /override's redirect and for the "already
   // spent" drill-down, and it sits on the body — the part a closed <details>
   // hides — rather than on the li or the summary.
@@ -387,18 +405,77 @@ function transactionRow(transaction: Classified): string {
               <div class="txn__body" id="txn-${esc(transaction.id)}">
                 <p class="txn__why">${esc(transaction.reason)}</p>
                 <p class="txn__raw">${esc(transaction.description)}</p>
-                <form method="post" action="/override" class="txn__actions">
-                  <input type="hidden" name="id" value="${esc(transaction.id)}" />
-                  ${options}
-                  ${
-                    transaction.overridden
-                      ? '<button class="chip chip--clear" type="submit" name="classification" value="clear">Clear</button>'
-                      : ''
-                  }
-                </form>
+                ${overrideForm(transaction)}
               </div>
             </details>
           </li>`;
+}
+
+// --- Needs review ---------------------------------------------------------
+
+const REVIEW_TAG: Record<ReviewReason, string> = {
+  'first-time': 'New place',
+  outsized: 'Unusual',
+  credit: 'Money in',
+};
+
+/**
+ * The charges worth confirming before Friday.
+ *
+ * Deliberately not a badge on a number somewhere: a wrongly placed charge only
+ * gets fixed if there is a list of them to work through. Every row carries the
+ * same reclassify buttons as the transaction list, so the queue is cleared
+ * where it is read rather than by going to find each charge.
+ */
+function reviewSection(data: DashboardViewData): string {
+  const items = data.review;
+  if (items.length === 0) return '';
+
+  const total = items.reduce(
+    (sum, item) => (item.transaction.amountCents < 0 ? sum + Math.abs(item.transaction.amountCents) : sum),
+    0,
+  );
+
+  return `      <section class="card card--review">
+        <div class="hero__top">
+          <h2 class="card__title">Needs a look</h2>
+          <span class="hero__when">${items.length}</span>
+        </div>
+        <p class="card__lede">
+          ${esc(moneyAbs(total))} worth confirming: places you have not spent at before,
+          amounts out of line with a merchant's own history, and money in that is not
+          recognised income. Anything wrong here is moving the Friday number.
+        </p>
+        <ul class="txns">
+          ${items
+            .map(
+              (item) => `<li class="txn">
+            <details class="txn__details">
+              <summary class="txn__summary">
+                <span class="txn__main">
+                  <span class="txn__desc">${esc(
+                    item.transaction.merchant ?? item.transaction.description,
+                  )}</span>
+                  <span class="txn__meta">
+                    ${esc(formatDayMonth(item.transaction.date))}
+                    <span class="tag tag--review">${esc(REVIEW_TAG[item.reason])}</span>
+                  </span>
+                </span>
+                <span class="txn__amount num ${
+                  item.transaction.amountCents > 0 ? 'txn__amount--in' : ''
+                }">${esc(money(item.transaction.amountCents))}</span>
+              </summary>
+              <div class="txn__body" id="review-${esc(item.transaction.id)}">
+                <p class="txn__why">${esc(item.detail)}</p>
+                <p class="txn__raw">${esc(item.transaction.description)}</p>
+                ${overrideForm(item.transaction)}
+              </div>
+            </details>
+          </li>`,
+            )
+            .join('\n          ')}
+        </ul>
+      </section>`;
 }
 
 /**
@@ -595,6 +672,7 @@ export function dashboardBody(data: DashboardViewData): string {
     <main class="wrap" id="main">
 ${banners}
 ${paycheckSection(data)}
+${reviewSection(data)}
 ${data.accounts.map((account) => balanceSection(account, trustworthy)).join('\n')}
 ${nextUpSection(data.soonest)}
 ${commitmentsSection(data)}

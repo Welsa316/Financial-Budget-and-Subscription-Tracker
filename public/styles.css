@@ -765,6 +765,27 @@ a.spent__link:hover .spent__label {
 
 /* ---------- Transactions ---------- */
 
+/* ---------- Needs a look ---------- */
+
+.card--review {
+  border-color: var(--essential);
+  background: var(--essential-soft);
+}
+
+.card--review .card__title,
+.card--review .hero__when {
+  color: var(--essential);
+}
+
+.card--review .txn {
+  border-bottom-color: rgba(138, 85, 17, 0.22);
+}
+
+.tag--review {
+  background: var(--essential);
+  color: #fffdf8;
+}
+
 /* ---------- Sorting the transaction list ---------- */
 
 .sortbar {
