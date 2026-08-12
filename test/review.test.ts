@@ -204,3 +204,27 @@ describe('credits already accounted for', () => {
     assert.deepEqual(reasonsFor(needsReview(txns, TODAY), 'Real Time'), ['credit']);
   });
 });
+
+describe('a refund bigger than the charge it reverses', () => {
+  /**
+   * A refund is capped at the value of the purchase it reverses, so an $80
+   * return against a $30 purchase resolves $30 and leaves $50 that nothing
+   * accounts for. Asking only whether the credit "matched something" made that
+   * remainder invisible.
+   */
+  it('still asks about the part that nothing accounts for', () => {
+    const txns = [
+      make('Card Purchase 08/03 Target 0991', '-30.00', '2026-08-03', { merchant: 'Target' }),
+      make('Card Purchase Return 08/06 Target 0991', '80.00', '2026-08-06', { merchant: 'Target' }),
+    ];
+    assert.deepEqual(reasonsFor(needsReview(txns, TODAY), 'Return'), ['credit']);
+  });
+
+  it('stays quiet when the refund is fully accounted for', () => {
+    const txns = [
+      make('Card Purchase 08/03 Target 0991', '-80.00', '2026-08-03', { merchant: 'Target' }),
+      make('Card Purchase Return 08/06 Target 0991', '80.00', '2026-08-06', { merchant: 'Target' }),
+    ];
+    assert.deepEqual(reasonsFor(needsReview(txns, TODAY), 'Return'), []);
+  });
+});

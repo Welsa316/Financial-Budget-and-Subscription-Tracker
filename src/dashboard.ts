@@ -198,9 +198,19 @@ export function needsReview(
   // A credit traced back to the purchase it reverses is already understood and
   // already netted out of the week — an Amazon return sitting beside its own
   // Amazon charge is not a question. Only the untraceable ones are.
+  // Fully applied, not merely matched. A refund is capped at the value of the
+  // charge it reverses, so an $80 return against a $30 purchase resolves $30
+  // and leaves $50 that nothing accounts for — and asking only whether it
+  // matched something made that remainder invisible here as well as in the
+  // week's maths.
+  const creditAmounts = new Map(classified.map((txn) => [txn.id, txn.amountCents]));
   const resolved = new Set(
     [...resolveRefunds(classified).values()]
-      .filter((resolution) => resolution.matchedChargeId !== null)
+      .filter(
+        (resolution) =>
+          resolution.matchedChargeId !== null &&
+          resolution.appliedCents >= (creditAmounts.get(resolution.creditId) ?? 0),
+      )
       .map((resolution) => resolution.creditId),
   );
 
@@ -302,9 +312,14 @@ export function monthlyShape(
   totals: CommitmentTotals,
   today = toYmd(),
 ): MonthlyShape {
-  const dated = classified.filter((transaction) => transaction.classification === 'income');
+  // Every month the data covers, seeded at zero — not only the months that
+  // happened to earn. Building the set from income rows alone made a month with
+  // spending and no income vanish rather than count as the lean month it was,
+  // which flatters the median exactly when it matters most.
   const months = new Map<string, number>();
-  for (const transaction of dated) {
+  for (const transaction of classified) months.set(transaction.date.slice(0, 7), 0);
+  for (const transaction of classified) {
+    if (transaction.classification !== 'income') continue;
     const month = transaction.date.slice(0, 7);
     months.set(month, (months.get(month) ?? 0) + transaction.amountCents);
   }
@@ -317,7 +332,9 @@ export function monthlyShape(
   const ordered = [...months.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   if (ordered.length > 1) ordered.shift();
 
-  const amounts = ordered.map(([, cents]) => cents).filter((cents) => cents > 0);
+  // A month that earned nothing stays in: it is a real outcome for irregular
+  // income and the median is what absorbs it.
+  const amounts = ordered.map(([, cents]) => Math.max(0, cents));
   const incomeCents = amounts.length === 0 ? 0 : median(amounts);
   const committedCents = totals.totalPerMonthCents;
 

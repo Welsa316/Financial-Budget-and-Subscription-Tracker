@@ -364,6 +364,23 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
       // row, or a real charge silently disappears.
       const claimed = new Set<string>();
 
+      // A row that already settled from something is spoken for permanently,
+      // not just for this sync. Two identical authorisations where only one
+      // posts leaves the other outstanding; on the NEXT sync the posted row is
+      // still inside the window, so the survivor matched it a second time and
+      // moved its own override onto a charge that had already settled from the
+      // first — replacing a classification made by hand with a different one,
+      // silently. The claimed set is per-sync, so this has to be re-seeded from
+      // what the database already knows.
+      for (const row of db
+        .prepare(
+          `SELECT id FROM transactions
+           WHERE account_id = ? AND settled_from IS NOT NULL AND source = 'simplefin'`,
+        )
+        .all(account.id) as Array<{ id: string }>) {
+        claimed.add(row.id);
+      }
+
       const reconcile = db.transaction((pendings: StoredPending[]) => {
         const outstanding = pendings.filter((pending) => !returnedIds.has(pending.id));
         const matched = new Map<string, SimpleFinTransaction>();

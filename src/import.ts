@@ -89,7 +89,7 @@ export function loadStatementRows(
 
       const occurrence = occurrences.get(key) ?? 0;
       occurrences.set(key, occurrence + 1);
-      const id = importId(key, occurrence);
+      const id = importId(accountId, key, occurrence);
 
       const result = insert.run(
         id,

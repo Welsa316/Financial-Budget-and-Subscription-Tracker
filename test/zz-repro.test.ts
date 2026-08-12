@@ -121,11 +121,23 @@ describe('repro: settle path clobbers destination override', () => {
 
     // Sync 3: posted row still in window, the surviving stale pending tries again.
     await runSync('manual');
-    console.log(
-      'B after sync 3 txns:',
-      JSON.stringify(getDb().prepare('SELECT id, status FROM transactions ORDER BY id').all()),
-    );
-    console.log('B after sync 3 overrides:', JSON.stringify(getDb().prepare('SELECT * FROM overrides').all()));
-    assert.ok(true);
+    // The phantom duplicate is right to go. What must NOT happen is it
+    // re-claiming the posted row that already settled from p1: that moves p2's
+    // override onto a charge p1 settled, silently replacing a decision made by
+    // hand with a different one.
+    const overrides = getDb().prepare('SELECT transaction_id, classification FROM overrides').all() as Array<{
+      transaction_id: string;
+      classification: string;
+    }>;
+    const onPosted = overrides.find((o) => o.transaction_id.endsWith('post_1'));
+
+    assert.equal(onPosted?.classification, 'bill', 'the settled charge keeps p1\'s classification');
+
+    const settledFrom = (
+      getDb().prepare('SELECT settled_from FROM transactions WHERE id LIKE ?').get('%post_1') as {
+        settled_from: string | null;
+      }
+    ).settled_from;
+    assert.ok(settledFrom?.endsWith('p1'), `settled from p1, not ${settledFrom}`);
   });
 });

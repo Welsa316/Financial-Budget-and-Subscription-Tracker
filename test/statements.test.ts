@@ -252,17 +252,33 @@ describe('checking the parse against the statement', () => {
 
 describe('import ids', () => {
   it('is stable for the same charge', () => {
-    assert.equal(importId('2025-12-05|-4058|netflix.com'), importId('2025-12-05|-4058|netflix.com'));
+    assert.equal(
+      importId('acc_1', '2025-12-05|-4058|netflix.com'),
+      importId('acc_1', '2025-12-05|-4058|netflix.com'),
+    );
   });
 
   it('differs when the amount differs', () => {
-    assert.notEqual(importId('2025-12-05|-4058|netflix'), importId('2025-12-05|-4059|netflix'));
+    assert.notEqual(
+      importId('acc_1', '2025-12-05|-4058|netflix'),
+      importId('acc_1', '2025-12-05|-4059|netflix'),
+    );
   });
 
   it('separates repeat occurrences of one charge', () => {
     const key = '2026-08-10|-500|cafe du monde';
-    assert.notEqual(importId(key, 0), importId(key, 1));
-    assert.equal(importId(key, 0), importId(key));
+    assert.notEqual(importId('acc_1', key, 0), importId('acc_1', key, 1));
+    assert.equal(importId('acc_1', key, 0), importId('acc_1', key));
+  });
+
+  /**
+   * transactions.id is global while the key is content only, so without the
+   * account the same charge on two accounts collided on the primary key and
+   * the second one was silently dropped.
+   */
+  it('separates the same charge on two different accounts', () => {
+    const key = '2026-08-10|-500|cafe du monde';
+    assert.notEqual(importId('acc_1', key), importId('acc_2', key));
   });
 });
 
@@ -292,5 +308,35 @@ describe('real statements', { skip: realPdfs.length === 0 ? 'no statements/ dire
         `${file}:\n  ${result.reconciliation.problems.join('\n  ')}`,
       );
     }
+  });
+});
+
+describe('things that reconcile but are still wrong', () => {
+  /**
+   * Reconciliation only checks money. Two ways a statement could parse wrongly
+   * and still balance perfectly.
+   */
+  it('refuses a statement whose period it could not read', () => {
+    const noPeriod = STATEMENT.replace(
+      'June 16, 2026 through July 15, 2026',
+      'Statement period unavailable',
+    );
+    const result = parseStatement(noPeriod);
+
+    assert.equal(result.transactions.length, 7, 'the rows still parse');
+    assert.equal(result.reconciliation.ok, false, 'but every year in them is a guess');
+    assert.ok(result.reconciliation.problems.some((p) => /period could not be read/.test(p)));
+  });
+
+  it('keeps a wrapped line that carries its own money-shaped text', () => {
+    const wrapped = STATEMENT.replace(
+      '                  Corp.Roblox.C CA Card 7975',
+      '                  Corp.Roblox.C 1.888.858.256 CA Card 7975',
+    );
+    const result = parseStatement(wrapped);
+    const roblox = result.transactions.find((t) => t.description.includes('Roblox'))!;
+
+    assert.deepEqual(result.skipped, [], 'nothing dropped');
+    assert.match(roblox.description, /Corp\.Roblox\.C 1\.888\.858\.256 CA Card 7975/);
   });
 });

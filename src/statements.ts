@@ -209,8 +209,19 @@ function parseSummary(lines: string[]): StatementSummary | null {
 function reconcile(
   transactions: StatementTransaction[],
   summary: StatementSummary | null,
+  periodFound: boolean,
 ): Reconciliation {
   const problems: string[] = [];
+
+  // Reconciliation only checks money, so a statement whose period could not be
+  // read reconciled perfectly while every row carried a guessed year — a
+  // December 2025 statement importing as December 2026, balances and all.
+  if (!periodFound && transactions.length > 0) {
+    problems.push(
+      'The statement period could not be read, so every year here is a guess from ' +
+        'today\'s date rather than from the statement.',
+    );
+  }
 
   if (!summary) {
     return {
@@ -308,7 +319,13 @@ export function parseStatement(text: string): ParsedStatement {
       // A wrapped description: "Card Purchase ... Amzn.Com/Bill WA" then
       // "Card 7975" on its own line. It belongs to the row above.
       const previous = transactions[transactions.length - 1];
-      if (previous && moneyTokens(line).length === 0) {
+      // Anything inside the markers that is not a dated row, a column header or
+      // a balance row is a wrapped description. Requiring it to hold no
+      // money-shaped text dropped "Corp.Roblox.C 1.888.858.256 CA Card 7975" and
+      // truncated the charge it belonged to — silently, because reconciliation
+      // checks amounts and never looks at descriptions. Letters are the test: a
+      // stray amount row has none.
+      if (previous && /[A-Za-z]/.test(line)) {
         previous.description = collapse(`${previous.description} ${line}`);
         previous.dedupeKey = dedupeKey(previous.date, previous.amountCents, previous.description);
         continue;
@@ -359,18 +376,26 @@ export function parseStatement(text: string): ParsedStatement {
     transactions,
     summary,
     skipped,
-    reconciliation: reconcile(transactions, summary),
+    reconciliation: reconcile(transactions, summary, start !== null && end !== null),
   };
 }
 
 /**
  * Deterministic id for an imported row, so re-importing the same statement
  * updates in place instead of duplicating.
+ *
+ * The account is part of it. Without that the id is derived from content
+ * alone while transactions.id is global, so the same charge on two accounts
+ * collided on the primary key: the second import hit ON CONFLICT DO NOTHING,
+ * was counted as a duplicate, and the real charge was recorded nowhere. That
+ * defeated the account-scoped duplicate matching entirely — the match was
+ * scoped, the id was not.
  */
-export function importId(key: string, occurrence = 0): string {
+export function importId(accountId: string, key: string, occurrence = 0): string {
+  const seed = `${accountId}|${key}`;
   let hash = 0;
-  for (let index = 0; index < key.length; index++) {
-    hash = (hash * 31 + key.charCodeAt(index)) >>> 0;
+  for (let index = 0; index < seed.length; index++) {
+    hash = (hash * 31 + seed.charCodeAt(index)) >>> 0;
   }
   const base = `imp_${hash.toString(36)}_${normalizeDescription(key).slice(0, 24).replace(/\s/g, '-')}`;
   // Two identical charges on the same day are a real thing — two $5 coffees at

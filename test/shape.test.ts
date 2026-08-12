@@ -136,3 +136,22 @@ describe('what is due next', () => {
     assert.equal(nextUp(commitments)?.name, first?.name);
   });
 });
+
+describe('months that earned nothing', () => {
+  /**
+   * Building the month set from income rows alone made a month with spending
+   * and no income vanish rather than count as the lean month it was — which
+   * flatters the median exactly when it matters most.
+   */
+  it('counts a complete month with spending but no income', () => {
+    const txns = [
+      income('1000.00', '2026-05-10'),
+      make('Card Purchase 06/10 Rouses Market', '-200.00', '2026-06-10'),
+      income('1000.00', '2026-07-10'),
+    ];
+    const shape = monthlyShape(txns, noCommitments, TODAY);
+
+    assert.equal(shape.sampleMonths, 2, 'June counts');
+    assert.equal(shape.incomeCents, 50000, 'median of $0 and $1000, not $1000');
+  });
+});
