@@ -10,6 +10,8 @@ import { addDays, addMonths, daysBetween, startOfMonth } from './time.js';
 
 export interface CommitmentStatus {
   name: string;
+  /** Brand mark slug from the rule, if it has one. */
+  icon?: string;
   type: 'subscription' | 'essential';
   /** The expected amount from the rules. */
   expectedCents: number;
@@ -84,6 +86,7 @@ function projectNextDue(lastPaid: string, cadence: string, billingDay: number | 
 
 function statusFor(
   name: string,
+  icon: string | undefined,
   type: 'subscription' | 'essential',
   expectedCents: number,
   cadence: string,
@@ -130,6 +133,7 @@ function statusFor(
 
   return {
     name,
+    icon,
     type,
     expectedCents,
     cadence,
@@ -153,6 +157,7 @@ export function buildCommitments(
   const essentials = rules.essentials.map((essential) =>
     statusFor(
       essential.name,
+      essential.icon,
       'essential',
       essential.amountCents,
       'monthly',
@@ -167,6 +172,7 @@ export function buildCommitments(
   const subscriptions = rules.subscriptions.map((subscription) =>
     statusFor(
       subscription.name,
+      subscription.icon,
       'subscription',
       subscription.amountCents,
       subscription.cadence,

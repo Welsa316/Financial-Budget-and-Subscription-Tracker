@@ -11,6 +11,8 @@ export type Cadence = 'monthly' | 'yearly' | 'weekly';
 
 export interface SubscriptionRule {
   name: string;
+  /** simple-icons slug for the brand mark; falls back to a generic one. */
+  icon?: string;
   match: string;
   amountCents: number;
   cadence: Cadence;
@@ -35,6 +37,8 @@ export interface SubscriptionRule {
 
 export interface EssentialRule {
   name: string;
+  /** simple-icons slug for the brand mark; falls back to a generic one. */
+  icon?: string;
   amountCents: number;
   match: { all?: string[]; any?: string[] };
   direction: 'out' | 'in';

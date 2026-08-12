@@ -25,6 +25,7 @@
   "subscriptions": [
     {
       "name": "Claude Code Max",
+      "icon": "claudecode",
       "match": "anthropic",
       "amountCents": 10975,
       "cadence": "monthly",
@@ -35,6 +36,7 @@
     },
     {
       "name": "Netflix",
+      "icon": "netflix",
       "match": "netflix",
       "amountCents": 4058,
       "cadence": "monthly",
@@ -53,6 +55,7 @@
     },
     {
       "name": "Chase service fee",
+      "icon": "chase",
       "match": "monthly service fee",
       "amountCents": 1500,
       "cadence": "monthly",
@@ -70,6 +73,7 @@
     },
     {
       "name": "Google One",
+      "icon": "google",
       "match": "google one",
       "amountCents": 548,
       "cadence": "monthly",
@@ -77,6 +81,7 @@
     },
     {
       "name": "Railway Hobby",
+      "icon": "railway",
       "match": "railway",
       "amountCents": 500,
       "cadence": "monthly",
@@ -85,6 +90,7 @@
     },
     {
       "name": "Google Workspace",
+      "icon": "google",
       "match": "workspace",
       "amountCents": 297,
       "cadence": "monthly",
@@ -93,6 +99,7 @@
     },
     {
       "name": "Google *Niagara",
+      "icon": "google",
       "match": "niagara",
       "amountCents": 1535,
       "cadence": "yearly",
@@ -101,6 +108,7 @@
     },
     {
       "name": "Apple",
+      "icon": "apple",
       "match": "apple.com",
       "amountCents": 99,
       "cadence": "monthly",
