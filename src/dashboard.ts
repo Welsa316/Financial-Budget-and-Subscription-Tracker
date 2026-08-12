@@ -43,6 +43,14 @@ export type RecentSort = 'date' | 'place';
 
 export const RECENT_LIMITS: Record<RecentSort, number> = { date: 25, place: 100 };
 
+/** Windows the spending breakdown can be read over. */
+export const SPEND_DAYS = [7, 30, 90] as const;
+export type SpendDays = (typeof SPEND_DAYS)[number];
+
+export function isSpendDays(value: unknown): value is SpendDays {
+  return (SPEND_DAYS as readonly number[]).includes(Number(value));
+}
+
 /**
  * Income against what is already spoken for.
  *
@@ -72,6 +80,7 @@ export interface DashboardModel {
   upcoming: CommitmentStatus[];
   shape: MonthlyShape;
   spending: SpendingBreakdown;
+  spendDays: SpendDays;
   recent: Classified[];
   recentSort: RecentSort;
   /** Charges worth confirming before Friday; see needsReview for what counts. */
@@ -407,6 +416,7 @@ export function buildSpending(
 
 export function buildDashboard(
   recentSort: RecentSort = 'date',
+  spendDays: SpendDays = 30,
   recentLimit = RECENT_LIMITS[recentSort],
 ): DashboardModel {
   const rules = getRules();
@@ -423,7 +433,8 @@ export function buildDashboard(
     soonest: nextUp(commitments),
     upcoming: upcoming(commitments),
     shape: monthlyShape(classified, totalCommitments(commitments)),
-    spending: buildSpending(classified, today),
+    spending: buildSpending(classified, today, spendDays),
+    spendDays,
     // Always the most recent N; "place" changes how they are grouped for
     // reading, not which transactions you are looking at.
     recent: classified.slice(0, recentLimit),

@@ -9,6 +9,7 @@ import {
   type SpendingSlice,
 } from '../dashboard.js';
 import { standing, type SpentLine, type WeekSummary } from '../budget.js';
+import { SPEND_DAYS } from '../dashboard.js';
 import {
   CARD_GROUP,
   CARD_ICONS,
@@ -371,6 +372,16 @@ function commitmentsDetail(data: DashboardViewData): string {
   const { totals } = data;
   const allEssentialsPaid = totals.essentialsPaidThisMonth === totals.essentialsCount;
 
+  // Only the essentials carry a paid/unpaid state — a subscription bills
+  // whether or not you looked at it, so counting those as "progress" would be
+  // inventing certainty. This measures what is actually known.
+  const paidCents = data.commitments
+    .filter((item) => item.type === 'essential' && item.paidThisMonth)
+    .reduce((sum, item) => sum + item.perMonthCents, 0);
+  const essentialTotal = totals.essentialsPerMonthCents;
+  const percent = essentialTotal === 0 ? 0 : Math.min(100, Math.round((paidCents / essentialTotal) * 100));
+  const leftCents = Math.max(0, essentialTotal - paidCents);
+
   return `        <p class="card__lede">
           <strong class="num">${esc(moneyAbs(totals.totalPerMonthCents))}</strong> a month committed.
           <span class="${allEssentialsPaid ? '' : 'is-warning'}">${
@@ -378,7 +389,20 @@ function commitmentsDetail(data: DashboardViewData): string {
           } of ${totals.essentialsCount} essentials paid this month.</span>
         </p>
 
-        <details class="group" open>
+        <div class="progress" role="img"
+             aria-label="${percent}% of this month's essentials paid">
+          <span class="progress__fill w-${percent}"></span>
+        </div>
+        <p class="progress__legend">
+          <span class="num">${esc(moneyAbs(paidCents))}</span> of
+          <span class="num">${esc(moneyAbs(essentialTotal))}</span> essentials paid${
+            leftCents > 0
+              ? ` &middot; <span class="num">${esc(moneyAbs(leftCents))}</span> to go`
+              : ''
+          }
+        </p>
+
+        <details class="subgroup" open>
           <summary class="subhead subhead--essential">
             Essentials <span class="subhead__amount num">${esc(
               moneyAbs(totals.essentialsPerMonthCents),
@@ -389,7 +413,7 @@ function commitmentsDetail(data: DashboardViewData): string {
           </ul>
         </details>
 
-        <details class="group">
+        <details class="subgroup">
           <summary class="subhead">
             Subscriptions <span class="subhead__amount num">${esc(
               moneyAbs(totals.subscriptionsPerMonthCents),
@@ -438,10 +462,21 @@ function sliceRows(slices: SpendingSlice[], linkPlaces: boolean): string {
 
 function spendingDetail(data: DashboardViewData): string {
   const s = data.spending;
+  // Plain links, like the sort toggle: the window survives a reload and can be
+  // bookmarked, and there is no client-side state to lose.
+  const windows = SPEND_DAYS.map((days) => {
+    const on = days === data.spendDays;
+    return `<a class="chip ${on ? 'chip--on' : ''}" href="/?days=${days}"${
+      on ? ' aria-current="true"' : ''
+    }>${days}d</a>`;
+  }).join('\n          ');
   // Same reason: the by-place view renders the anchors these bars aim at, and
   // it is part of the transaction list.
   const linkPlaces = !data.layout.hidden.has('transactions');
-  return `        <div class="split" role="img" aria-label="Subscriptions and bills ${s.billsPercent}%, everything else ${
+  return `        <div class="sortbar" role="group" aria-label="Spending window">
+          ${windows}
+        </div>
+        <div class="split" role="img" aria-label="Subscriptions and bills ${s.billsPercent}%, everything else ${
           100 - s.billsPercent
         }%">
           <span class="split__bills w-${s.billsPercent}"></span>
@@ -741,6 +776,8 @@ function transactionsDetail(data: DashboardViewData): string {
  */
 interface Row {
   id: CardId;
+  /** Overrides the card's usual name, where the window is part of the name. */
+  label?: string;
   /** Plain text, used for the accessible name and by the tests. */
   value: string;
   /** Same figure with the cents dropped back a size. Already escaped. */
@@ -797,6 +834,7 @@ function buildRows(data: DashboardViewData, trustworthy: boolean): Row[] {
     },
     {
       id: 'spending',
+      label: `Last ${data.spendDays} days`,
       value: moneyAbs(data.spending.totalCents),
       valueHtml: moneyParts(data.spending.totalCents),
       detail: spendingDetail(data),
@@ -831,7 +869,7 @@ function row(item: Row): string {
                 <span class="row__icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24"><path d="${CARD_ICONS[item.id]}" /></svg>
                 </span>
-                <span class="row__name">${esc(CARD_LABELS[item.id])}</span>
+                <span class="row__name">${esc(item.label ?? CARD_LABELS[item.id])}</span>
                 <span class="row__value num${item.tone ? ` row__value--${item.tone}` : ''}">${
                   item.valueHtml ?? esc(item.value)
                 }</span>

@@ -28,7 +28,7 @@ import {
   type AccountRow,
 } from './views.js';
 import { canHide, getLayout, reorder, saveLayout, type CardId } from './layout.js';
-import { buildDashboard, type RecentSort } from './dashboard.js';
+import { buildDashboard, isSpendDays, type RecentSort, type SpendDays } from './dashboard.js';
 import { loadStatementRows, type IncomingRow } from './import.js';
 
 export const router = Router();
@@ -323,6 +323,7 @@ router.post('/override', (req: Request, res: Response) => {
 router.get('/', (req: Request, res: Response) => {
   const db = getDb();
   const recentSort: RecentSort = req.query.sort === 'place' ? 'place' : 'date';
+  const spendDays: SpendDays = isSpendDays(req.query.days) ? (Number(req.query.days) as SpendDays) : 30;
 
   const accounts = db
     .prepare(
@@ -345,7 +346,7 @@ router.get('/', (req: Request, res: Response) => {
 
   res.type('html').send(
     dashboardPage({
-      ...buildDashboard(recentSort),
+      ...buildDashboard(recentSort, spendDays),
       layout: getLayout(),
       accounts,
       lastSync: lastSync ?? null,

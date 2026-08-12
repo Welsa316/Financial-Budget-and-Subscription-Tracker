@@ -49,6 +49,7 @@ function render(
     upcoming: upcoming(commitments),
     shape: monthlyShape(transactions, totalCommitments(commitments), TODAY),
     spending: buildSpending(transactions, TODAY),
+    spendDays: 30,
     recent: transactions,
     recentSort: 'date',
     review: [],

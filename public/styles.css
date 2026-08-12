@@ -1371,9 +1371,12 @@ body:has(.offline-banner) .topbar {
   scroll-margin-top: 9.5rem;
 }
 
-/* ---------- Collapsible sections within a card ---------- */
+/* ---------- Collapsible sections within a row ----------
+   Named apart from .group, which is the heading-plus-rows block on the page.
+   Sharing the name meant the sibling margin between page groups was also
+   pushing Essentials and Subscriptions apart inside one row. */
 
-.group > summary {
+.subgroup > summary {
   cursor: pointer;
   list-style: none;
   display: flex;
@@ -1382,17 +1385,17 @@ body:has(.offline-banner) .topbar {
   min-height: 44px;
 }
 
-.group > summary::-webkit-details-marker {
+.subgroup > summary::-webkit-details-marker {
   display: none;
 }
 
-.group > summary::before {
+.subgroup > summary::before {
   content: '▸';
   color: var(--ink-3);
   transition: transform 140ms ease;
 }
 
-.group[open] > summary::before {
+.subgroup[open] > summary::before {
   transform: rotate(90deg);
 }
 
@@ -1660,4 +1663,27 @@ body:has(.offline-banner) .topbar {
 .row__value .money__cents {
   color: inherit;
   opacity: 0.62;
+}
+
+/* ---------- Progress through the month ---------- */
+
+.progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-sunk);
+  overflow: hidden;
+  margin: 0.15rem 0 0.4rem;
+}
+
+.progress__fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.progress__legend {
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+  margin-bottom: 0.7rem;
 }
