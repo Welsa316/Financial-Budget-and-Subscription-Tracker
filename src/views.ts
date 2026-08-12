@@ -1,4 +1,5 @@
 import { esc } from './format.js';
+import { CARD_LABELS, canHide, type CardLayout } from './layout.js';
 import { dashboardBody, type DashboardViewData } from './views/dashboard.js';
 import type { ConfigProblem } from './config.js';
 
@@ -118,6 +119,70 @@ export function connectPage(data: ConnectPageData): string {
     body,
     bodyClass: 'body--auth',
   });
+}
+
+/**
+ * Choosing which cards appear, and in what order.
+ *
+ * Checkboxes and up/down buttons rather than drag and drop: one person, one
+ * phone, a decision made about twice a year. It posts a form, so it works with
+ * a keyboard and a screen reader without any of the work dragging would need.
+ */
+export function cardsPage(cards: CardLayout): string {
+  const rows = cards.order
+    .map((id, index) => {
+      const hidden = cards.hidden.has(id);
+      const first = index === 0;
+      const last = index === cards.order.length - 1;
+
+      const move = (direction: 'up' | 'down', disabled: boolean): string =>
+        `<button class="chip chip--icon" type="submit" name="move" value="${esc(
+          `${id}:${direction}`,
+        )}"${disabled ? ' disabled' : ''} aria-label="Move ${esc(CARD_LABELS[id])} ${direction}">${
+          direction === 'up' ? '&uarr;' : '&darr;'
+        }</button>`;
+
+      return `<li class="cardrow">
+            <span class="cardrow__name${hidden ? ' cardrow__name--off' : ''}">${esc(
+              CARD_LABELS[id],
+            )}</span>
+            <span class="cardrow__actions">
+              ${move('up', first)}
+              ${move('down', last)}
+              ${
+                canHide(id)
+                  ? `<button class="chip${
+                      hidden ? '' : ' chip--on'
+                    }" type="submit" name="toggle" value="${esc(id)}">${
+                      hidden ? 'Hidden' : 'Shown'
+                    }</button>`
+                  : '<span class="cardrow__fixed">Always on</span>'
+              }
+            </span>
+          </li>`;
+    })
+    .join('\n          ');
+
+  const body = `    <main class="wrap" id="main">
+      <section class="card">
+        <h2 class="card__title">Cards</h2>
+        <p class="card__lede">
+          What the dashboard shows, and in what order. The paycheck stays put, and
+          the sync card and connection warnings are not here — those are how this
+          tells you it might be out of date.
+        </p>
+        <form method="post" action="/cards">
+          <ul class="cardrows">
+          ${rows}
+          </ul>
+        </form>
+      </section>
+      <footer class="footer">
+        <a class="btn btn--quiet" href="/">Back to dashboard</a>
+      </footer>
+    </main>`;
+
+  return layout({ title: 'Cards · Finance', body });
 }
 
 export function errorPage(status: number, message: string): string {

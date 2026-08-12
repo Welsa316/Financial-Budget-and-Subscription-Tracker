@@ -19,7 +19,15 @@ import {
 } from './enrollment.js';
 import { SimpleFinError, claimSetupToken } from './simplefin.js';
 import { isSyncRunning, nextScheduledRun, runSync } from './sync.js';
-import { connectPage, dashboardPage, errorPage, loginPage, type AccountRow } from './views.js';
+import {
+  cardsPage,
+  connectPage,
+  dashboardPage,
+  errorPage,
+  loginPage,
+  type AccountRow,
+} from './views.js';
+import { canHide, getLayout, reorder, saveLayout, type CardId } from './layout.js';
 import { buildDashboard, type RecentSort } from './dashboard.js';
 import { loadStatementRows, type IncomingRow } from './import.js';
 
@@ -231,6 +239,42 @@ router.post('/api/import', (req: Request, res: Response) => {
   res.json({ inserted, duplicates, invalid, accountId });
 });
 
+// --- Which cards the dashboard shows ---------------------------------------
+
+router.get('/cards', (_req: Request, res: Response) => {
+  res.type('html').send(cardsPage(getLayout()));
+});
+
+/**
+ * One button press, one change, then straight back to the page it describes.
+ *
+ * Redirecting rather than re-rendering means a refresh cannot replay the last
+ * move, which on a form of nothing but up/down buttons is the difference
+ * between reordering a list and watching it walk away from you.
+ */
+router.post('/cards', (req: Request, res: Response) => {
+  const layout = getLayout();
+  const move = typeof req.body?.move === 'string' ? req.body.move : '';
+  const toggle = typeof req.body?.toggle === 'string' ? req.body.toggle : '';
+
+  const known = (value: string): value is CardId =>
+    layout.order.includes(value as CardId);
+
+  if (move) {
+    const [id, direction] = move.split(':');
+    if (id && known(id) && (direction === 'up' || direction === 'down')) {
+      layout.order = reorder(layout.order, id, direction);
+      saveLayout(layout);
+    }
+  } else if (toggle && known(toggle) && canHide(toggle)) {
+    if (layout.hidden.has(toggle)) layout.hidden.delete(toggle);
+    else layout.hidden.add(toggle);
+    saveLayout(layout);
+  }
+
+  res.redirect('/cards');
+});
+
 const OVERRIDE_VALUES = new Set(['bill', 'discretionary', 'income', 'ignore']);
 
 /**
@@ -296,6 +340,7 @@ router.get('/', (req: Request, res: Response) => {
   res.type('html').send(
     dashboardPage({
       ...buildDashboard(recentSort),
+      layout: getLayout(),
       accounts,
       lastSync: lastSync ?? null,
       bankConnected: connected,

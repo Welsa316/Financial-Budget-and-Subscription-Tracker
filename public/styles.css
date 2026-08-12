@@ -1505,3 +1505,59 @@ body:has(.offline-banner) .topbar {
 .group[open] > summary::before {
   transform: rotate(90deg);
 }
+
+/* ---------- Choosing which cards show ---------- */
+
+.cardrows {
+  display: flex;
+  flex-direction: column;
+}
+
+.cardrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.cardrow:last-child {
+  border-bottom: 0;
+}
+
+.cardrow__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Struck through rather than greyed: at a glance "off" should not be mistaken
+   for "disabled control". */
+.cardrow__name--off {
+  color: var(--ink-3);
+  text-decoration: line-through;
+}
+
+.cardrow__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.chip--icon {
+  padding: 0.35rem 0.6rem;
+  min-width: 44px;
+  justify-content: center;
+}
+
+.chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.cardrow__fixed {
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+  padding: 0 0.35rem;
+}

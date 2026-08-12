@@ -9,6 +9,7 @@ import {
   type SpendingSlice,
 } from '../dashboard.js';
 import type { SpentLine, WeekSummary } from '../budget.js';
+import type { CardId, CardLayout } from '../layout.js';
 
 export interface AccountRow {
   id: string;
@@ -19,6 +20,7 @@ export interface AccountRow {
 }
 
 export interface DashboardViewData extends DashboardModel {
+  layout: CardLayout;
   accounts: AccountRow[];
   lastSync: { finished_at: string | null; status: string; error: string | null } | null;
   bankConnected: boolean;
@@ -700,6 +702,33 @@ function transactionsSection(data: DashboardViewData): string {
 
 // --- Page -----------------------------------------------------------------
 
+/**
+ * The cards, in the order the layout asks for and minus the hidden ones.
+ *
+ * The banners and the sync card are rendered outside this on purpose: they are
+ * how the dashboard says it might be lying to you, so they are not the user's
+ * to hide.
+ */
+function renderCards(data: DashboardViewData, trustworthy: boolean): string {
+  const render: Record<CardId, () => string> = {
+    paycheck: () => paycheckSection(data),
+    review: () => reviewSection(data),
+    balances: () =>
+      data.accounts.map((account) => balanceSection(account, trustworthy)).join('\n'),
+    shape: () => shapeSection(data),
+    upcoming: () => upcomingSection(data),
+    commitments: () => commitmentsSection(data),
+    spending: () => spendingSection(data),
+    transactions: () => transactionsSection(data),
+  };
+
+  return data.layout.order
+    .filter((id) => !data.layout.hidden.has(id))
+    .map((id) => render[id]())
+    .filter((html) => html !== '')
+    .join('\n');
+}
+
 export function dashboardBody(data: DashboardViewData): string {
   const syncLabel = data.lastSync?.finished_at
     ? `Synced ${formatStamp(data.lastSync.finished_at)}`
@@ -785,14 +814,7 @@ export function dashboardBody(data: DashboardViewData): string {
 
     <main class="wrap" id="main">
 ${banners}
-${paycheckSection(data)}
-${reviewSection(data)}
-${data.accounts.map((account) => balanceSection(account, trustworthy)).join('\n')}
-${shapeSection(data)}\n${upcomingSection(data)}
-${commitmentsSection(data)}
-${spendingSection(data)}
-
-${transactionsSection(data)}
+${renderCards(data, trustworthy)}
 
       <section class="card">
         <h2 class="card__title">Sync</h2>
@@ -820,6 +842,7 @@ ${transactionsSection(data)}
       </section>
 
       <footer class="footer">
+        <a class="btn btn--quiet" href="/cards">Cards</a>
         <a class="btn btn--quiet" href="/connect">Connection</a>
         <form method="post" action="/logout">
           <button class="btn btn--quiet" type="submit">Sign out</button>

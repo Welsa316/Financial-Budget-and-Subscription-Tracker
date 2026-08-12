@@ -5,6 +5,7 @@ import { buildPaycheckView } from '../src/budget.js';
 import { buildCommitments, nextUp, totalCommitments, upcoming } from '../src/commitments.js';
 import { buildSpending, monthlyShape } from '../src/dashboard.js';
 import { dashboardBody, type DashboardViewData } from '../src/views/dashboard.js';
+import { defaultLayout } from '../src/layout.js';
 import { getRules } from '../src/rules.js';
 import { normalizeDescription, toCents } from '../src/normalize.js';
 
@@ -40,6 +41,7 @@ function render(
   const commitments = buildCommitments(transactions, TODAY, rules);
   return dashboardBody({
     today: TODAY,
+    layout: defaultLayout(),
     paycheck: buildPaycheckView(TODAY, transactions, rules),
     commitments,
     totals: totalCommitments(commitments),
