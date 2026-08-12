@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { classifyOne, type ClassifiableTransaction, type Classified } from '../src/classify.js';
 import { buildPaycheckView } from '../src/budget.js';
-import { buildCommitments, nextUp, totalCommitments, upcoming } from '../src/commitments.js';
+import { buildCommitments, nextUp, totalCommitments } from '../src/commitments.js';
 import { buildSpending, monthlyShape } from '../src/dashboard.js';
 import { dashboardBody, type DashboardViewData } from '../src/views/dashboard.js';
 import { CARD_IDS, defaultLayout, type CardId } from '../src/layout.js';
@@ -46,7 +46,6 @@ function render(
     commitments,
     totals: totalCommitments(commitments),
     soonest: nextUp(commitments),
-    upcoming: upcoming(commitments),
     shape: monthlyShape(transactions, totalCommitments(commitments), TODAY),
     spending: buildSpending(transactions, TODAY),
     spendDays: 30,
@@ -337,17 +336,40 @@ describe('rows', () => {
 
   it('groups the rows under headings rather than stacking eight boxes', () => {
     const html = render({}, txns);
-    // 'This week' is gone from the default render: the paycheck moved into the
-    // hero, so the group only exists when the review queue gives it a reason.
-    for (const heading of ['Accounts', 'Coming up', 'Where it goes']) {
+    // 'This week' only exists when the review queue gives it a reason, and
+    // 'Accounts' is gone for good: the wallet card replaced the group.
+    for (const heading of ['Coming up', 'Where it goes']) {
       assert.ok(html.includes(heading), `${heading} groups its rows`);
     }
-    assert.ok(!html.includes('This week'), 'an empty group renders no heading');
+    for (const gone of ['This week', 'Accounts', 'Due in 30 days']) {
+      assert.ok(!html.includes(gone), `${gone} is not rendered`);
+    }
     const withReview = render(
       { review: [{ transaction: txns[1]!, reason: 'first-time', detail: 'x' }] },
       txns,
     );
     assert.ok(withReview.includes('This week'), 'and returns when the queue has items');
+  });
+
+  it('renders the balance as a standalone card, not a row in a box', () => {
+    const chase = {
+      id: 'acc1',
+      name: 'Chase Total Checking',
+      institution: 'Chase',
+      available_cents: 84213,
+      ledger_cents: 86000,
+    };
+    const html = render({ accounts: [chase] }, txns);
+    const wallet = html.match(/<section class="wallet">([\s\S]*?)<\/section>/);
+    assert.ok(wallet, 'the wallet section renders');
+    assert.match(wallet![1]!, /class="bankcard"/, 'and holds the card face');
+    assert.ok(!/class="rows"[\s\S]*?bankcard/.test(html), 'the card sits in no row list');
+    const hidden = render(
+      { accounts: [chase], layout: { order: [...CARD_IDS], hidden: new Set<CardId>(['balances']) } },
+      txns,
+    );
+    assert.ok(!hidden.includes('class="wallet"'), 'hiding balances removes the wallet');
+    assert.ok(!render({}, txns).includes('class="wallet"'), 'no account, no card');
   });
 
   it('keeps every row shut except the queue, which is there to be worked', () => {

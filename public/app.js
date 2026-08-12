@@ -17,10 +17,11 @@
   // display on the child, so CSS cannot force it open — this can, and without
   // it the desktop layout is simply a wider set of collapsed rows.
   var wide = window.matchMedia('(min-width: 900px)');
-  // Everything except the per-transaction drill-down: desktop flattens every
-  // section disclosure, while opening a single charge to reclassify it stays
-  // an action on both widths.
-  var allRows = document.querySelectorAll('details:not(.txn__details)');
+  // Desktop flattens every SECTION disclosure. Two kinds stay tappable on
+  // both widths: the per-transaction drill-down (an action on one charge)
+  // and the audit trails inside the paycheck working ("What the $X is made
+  // of", "Previous 4 weeks") - detail worth having, not worth seeing on load.
+  var allRows = document.querySelectorAll('details:not(.txn__details):not(.disclosure)');
 
   // Whatever the server decided is the phone's answer. The review queue ships
   // open because a queue nobody opens is a queue nobody clears, and narrowing

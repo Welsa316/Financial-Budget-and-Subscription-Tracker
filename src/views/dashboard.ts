@@ -213,47 +213,6 @@ function balanceDetail(account: AccountRow, trustworthy: boolean): string {
         </dl>`;
 }
 
-// --- 3. Next up -----------------------------------------------------------
-
-/**
- * Everything due in the next thirty days.
- *
- * The single "Next up" charge answered "what is next" but not "what is going
- * out before Friday", which is the question that decides whether this week's
- * money is actually spendable. The dates were already computed for every
- * commitment and all but one thrown away.
- */
-function upcomingDetail(data: DashboardViewData): string {
-  const items = data.upcoming;
-  if (items.length === 0) return '';
-
-  const total = items.reduce((sum, item) => sum + item.expectedCents, 0);
-  const anyVariable = items.some((item) => item.variableAmount);
-
-  void total;
-  void anyVariable;
-  return `        <ul class="due">
-          ${items
-            .map(
-              (item) => `<li class="due__row">
-            <span class="due__main">
-              <span class="due__name">${brandMark(item)}${esc(item.name)}</span>
-              <span class="due__when">${esc(formatDayMonth(item.nextDueDate!))} &middot; ${esc(
-                relativeDays(item.daysUntilDue ?? 0),
-              )}</span>
-            </span>
-            <span class="due__amount num">${esc(moneyAbs(item.expectedCents))}${
-              item.variableAmount ? '+' : ''
-            }</span>
-          </li>`,
-            )
-            .join('\n          ')}
-        </ul>
-        <p class="card__hint card__hint--left">
-          Projected from the day each one has actually billed on, rolled forward.
-        </p>`;
-}
-
 /**
  * Income against what is already spoken for — the one number that says whether
  * the commitments total is a lot or not.
@@ -848,7 +807,7 @@ function bankCardHead(account: AccountRow, balance: number | null, trustworthy: 
   const mark = BRAND_ICONS['chase'];
   const institution =
     account.institution && account.institution.toLowerCase().includes('chase') ? mark : undefined;
-  return `<summary class="row__head bankcard">
+  return `<summary class="bankcard">
                 <span class="bankcard__mark" aria-hidden="true">${
                   institution
                     ? `<svg viewBox="0 0 24 24"><path d="${institution.path}" /></svg>`
@@ -865,11 +824,29 @@ function bankCardHead(account: AccountRow, balance: number | null, trustworthy: 
               </summary>`;
 }
 
+/**
+ * The card on its own. It sat inside the Accounts group first, which buried
+ * the one object on the page that is not a list under a heading and a border.
+ * Standalone, it does what it does in the reference: it IS the accounts
+ * section. Tapping it (phone) or just looking under it (desktop) gives the
+ * posted/pending breakdown.
+ */
+function wallet(data: DashboardViewData, trustworthy: boolean): string {
+  const account = data.accounts[0];
+  if (!account) return '';
+  const balance = account.available_cents ?? account.ledger_cents;
+  return `      <section class="wallet">
+        <details class="wallet__d">
+          ${bankCardHead(account, balance, trustworthy)}
+          <div class="wallet__body">
+            ${data.accounts.map((a) => balanceDetail(a, trustworthy)).join('\n')}
+          </div>
+        </details>
+      </section>`;
+}
+
 function buildRows(data: DashboardViewData, trustworthy: boolean): Row[] {
   const { current } = data.paycheck;
-  const account = data.accounts[0];
-  const balance = account ? (account.available_cents ?? account.ledger_cents) : null;
-  const dueTotal = data.upcoming.reduce((sum, item) => sum + item.expectedCents, 0);
   const reviewTotal = data.review.reduce(
     (sum, item) => (item.transaction.amountCents < 0 ? sum + Math.abs(item.transaction.amountCents) : sum),
     0,
@@ -877,25 +854,12 @@ function buildRows(data: DashboardViewData, trustworthy: boolean): Row[] {
 
   const rows: Row[] = [
     {
-      id: 'balances',
-      value: balance === null ? '—' : money(balance),
-      valueHtml: balance === null ? undefined : moneyParts(balance),
-      headHtml: account ? bankCardHead(account, balance, trustworthy) : undefined,
-      detail: data.accounts.map((a) => balanceDetail(a, trustworthy)).join('\n'),
-    },
-    {
       id: 'shape',
       value: data.shape.sampleMonths === 0 ? '—' : money(data.shape.freeCents),
       valueHtml:
         data.shape.sampleMonths === 0 ? undefined : moneyParts(data.shape.freeCents),
       tone: data.shape.freeCents < 0 ? 'negative' : undefined,
       detail: shapeDetail(data),
-    },
-    {
-      id: 'upcoming',
-      value: moneyAbs(dueTotal),
-      valueHtml: moneyParts(dueTotal),
-      detail: upcomingDetail(data),
     },
     {
       id: 'commitments',
@@ -1130,6 +1094,7 @@ export function dashboardBody(data: DashboardViewData): string {
     <main class="wrap" id="main">
 ${banners}
 ${data.layout.hidden.has('paycheck') ? '' : hero(data)}
+${data.layout.hidden.has('balances') ? '' : wallet(data, trustworthy)}
 ${renderCards(data, trustworthy)}
 
       <section class="group">

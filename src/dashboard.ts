@@ -5,7 +5,6 @@ import {
   buildCommitments,
   nextUp,
   totalCommitments,
-  upcoming,
   type CommitmentStatus,
   type CommitmentTotals,
 } from './commitments.js';
@@ -79,7 +78,6 @@ export interface DashboardModel {
   totals: CommitmentTotals;
   soonest: CommitmentStatus | null;
   /** Everything due in the next 30 days, soonest first. */
-  upcoming: CommitmentStatus[];
   shape: MonthlyShape;
   spending: SpendingBreakdown;
   spendDays: SpendDays;
@@ -438,7 +436,6 @@ export function buildDashboard(
     commitments,
     totals: totalCommitments(commitments),
     soonest: nextUp(commitments),
-    upcoming: upcoming(commitments),
     shape: monthlyShape(classified, totalCommitments(commitments)),
     spending: buildSpending(classified, today, spendDays),
     spendDays,

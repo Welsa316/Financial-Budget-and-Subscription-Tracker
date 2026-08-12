@@ -1830,16 +1830,30 @@ body:has(.offline-banner) .topbar {
      it reads as the label of the content beneath it. Everything is gated on
      [open] so a scripting failure leaves working controls, never stranded
      content. */
-  details[open]:not(.txn__details) > summary {
+  details[open]:not(.txn__details):not(.disclosure) > summary {
     pointer-events: none;
     cursor: default;
   }
 
   .row__d[open] > .row__head::after,
-  .disclosure[open] > summary::before,
   .subgroup[open] > summary::before,
   .place[open] > .place__head::before {
     display: none;
+  }
+
+  /* The wallet sits centred under the hero at a card's natural size, not
+     stretched across two columns and not stranded in one. */
+  .wallet {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 0 0 0.6rem;
+  }
+
+  .wallet__d {
+    width: 26rem;
+    max-width: 100%;
   }
 
   .hero__working {
@@ -2120,7 +2134,6 @@ body:has(.offline-banner) .topbar {
   grid-template-rows: auto 1fr auto;
   gap: 0 0.8rem;
   aspect-ratio: 1.586;
-  margin: 0.9rem var(--pad);
   padding: 1.1rem 1.2rem;
   border: 1px solid var(--line-strong);
   border-radius: 14px;
@@ -2129,10 +2142,6 @@ body:has(.offline-banner) .topbar {
   background: var(--surface-sunk);
 }
 
-/* The row's chevron makes no sense on a card face. */
-.row__head.bankcard::after {
-  display: none;
-}
 
 .bankcard .bankcard__mark {
   width: 26px;
@@ -2205,4 +2214,16 @@ details > .bankcard {
 
 details > .bankcard:hover {
   border-color: var(--line-control);
+}
+
+/* ---------- The wallet ----------
+   The card stands alone between the hero and the lists — it is the accounts
+   section, so it gets no heading and no box around it. */
+
+.wallet {
+  margin: 0.4rem 0 1.8rem;
+}
+
+.wallet__body {
+  padding: 0.8rem 0.4rem 0;
 }

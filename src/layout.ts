@@ -18,7 +18,6 @@ export const CARD_IDS = [
   'review',
   'balances',
   'shape',
-  'upcoming',
   'commitments',
   'spending',
   'transactions',
@@ -31,7 +30,6 @@ export const CARD_LABELS: Record<CardId, string> = {
   review: 'Needs a look',
   balances: 'Available to spend',
   shape: 'A typical month',
-  upcoming: 'Due in 30 days',
   commitments: 'Commitments',
   spending: 'Last 30 days',
   transactions: 'Recent transactions',
@@ -45,12 +43,11 @@ export const CARD_LABELS: Record<CardId, string> = {
  * puts the whole dashboard on a screen or two, and headings do the separating
  * that ten borders were failing to do.
  */
-export const GROUPS = ['week', 'money', 'coming', 'activity'] as const;
+export const GROUPS = ['week', 'coming', 'activity'] as const;
 export type GroupId = (typeof GROUPS)[number];
 
 export const GROUP_LABELS: Record<GroupId, string> = {
   week: 'This week',
-  money: 'Accounts',
   coming: 'Coming up',
   activity: 'Where it goes',
 };
@@ -58,9 +55,10 @@ export const GROUP_LABELS: Record<GroupId, string> = {
 export const CARD_GROUP: Record<CardId, GroupId> = {
   paycheck: 'week',
   review: 'week',
-  balances: 'money',
+  // The balance renders as the wallet card, outside every group; the id
+  // stays so it can still be hidden from /cards.
+  balances: 'coming',
   shape: 'coming',
-  upcoming: 'coming',
   commitments: 'coming',
   spending: 'activity',
   transactions: 'activity',
@@ -76,7 +74,6 @@ export const CARD_ICONS: Record<CardId, string> = {
   review: 'M12 3.5 21 20H3zM12 10v4M12 16.5v.5',
   balances: 'M4 6h16v12H4zM4 10h16M8 14h4',
   shape: 'M12 3a9 9 0 1 0 9 9h-9z',
-  upcoming: 'M4 5h16v16H4zM4 9h16M8 3v4M16 3v4M9 14h6',
   commitments: 'M4 5h13l3 3v11H4zM8 5v5h7V5M8 15h8',
   spending: 'M4 20V11m5 9V5m5 15v-6m5 6V8',
   transactions: 'M4 8h13l-3-3M20 16H7l3 3',
