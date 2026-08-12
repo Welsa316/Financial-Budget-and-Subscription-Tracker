@@ -309,13 +309,37 @@ node dist/scripts/import-statements.js ./statements --url https://your-app.up.ra
 It asks for your dashboard password (or reads `DASHBOARD_PASSWORD`), parses
 locally, and posts the rows. Drop `--url` to write to a local database instead.
 
-Running it twice is safe. Rows are matched against everything already stored by
-date, amount and description similarity, so re-importing the same statement
-inserts nothing, and a charge that also arrives through SimpleFIN replaces the
-imported copy rather than double-counting.
+Running it twice is safe. Rows are matched against what is already stored for
+that account by date, amount and description similarity, so re-importing the
+same statement inserts nothing, and a charge that also arrives through SimpleFIN
+replaces the imported copy rather than double-counting. Matching counts rather
+than just checking: two identical charges on one day are real, and the statement
+listing a charge twice against one stored copy means one of them is new.
 
-`--show-skipped` prints lines that looked like transactions but were not
-parsed, which is the first thing to check if a total looks wrong.
+**Every statement has to reconcile before anything is written.** Each row states
+the running balance it produced, so the importer adds the amounts up and checks
+them against the balance printed beside each row, then against the statement's
+own CHECKING SUMMARY. If a single amount is misread the run stops, names the
+row, and writes nothing — importing money that does not add up is the failure
+this whole dashboard exists to prevent. `--force` overrides it if you know why a
+statement differs.
+
+A clean run looks like this:
+
+```
+20260715-statements-0703-.pdf  2026-06-16 to 2026-07-15  80 rows  in $1781.94  out -$1756.52
+  reconciled against the statement: $9.28 to $34.70
+```
+
+`--show-skipped` prints lines inside the transaction table that were not parsed,
+which is the next thing to check if a total looks wrong.
+
+The parser reads the one `TRANSACTION DETAIL` table that Chase Total Checking
+statements actually use — signed amounts, a running balance after each amount,
+descriptions that wrap onto continuation lines — not a section-per-type layout.
+Drop the PDFs into `statements/` and `npm test` checks the parser against them
+directly instead of against a fixture; the directory is gitignored, so a clean
+checkout skips that test.
 
 ---
 

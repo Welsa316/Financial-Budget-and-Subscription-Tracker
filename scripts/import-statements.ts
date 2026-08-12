@@ -23,6 +23,8 @@ interface Options {
   url: string | null;
   dryRun: boolean;
   showSkipped: boolean;
+  /** Import even when a statement's rows do not add up to its own totals. */
+  force: boolean;
 }
 
 function usage(): never {
@@ -35,7 +37,8 @@ Options:
   --url <base>     Post to a running dashboard (e.g. https://app.up.railway.app).
                    Omit to write directly to the local database.
   --dry-run        Parse and summarise without writing anything.
-  --show-skipped   Print lines that looked like transactions but were not parsed.
+  --show-skipped   Print lines inside the transaction table that were not parsed.
+  --force          Import even if a statement does not reconcile with its own totals.
   --help
 
 Requires: brew install poppler
@@ -44,12 +47,13 @@ Requires: brew install poppler
 }
 
 function parseArgs(argv: string[]): Options {
-  const options: Options = { paths: [], url: null, dryRun: false, showSkipped: false };
+  const options: Options = { paths: [], url: null, dryRun: false, showSkipped: false, force: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     if (arg === '--help' || arg === '-h') usage();
     else if (arg === '--dry-run') options.dryRun = true;
     else if (arg === '--show-skipped') options.showSkipped = true;
+    else if (arg === '--force') options.force = true;
     else if (arg === '--url') options.url = argv[++i] ?? null;
     else if (arg.startsWith('--')) {
       console.error(`Unknown option: ${arg}`);
@@ -195,8 +199,7 @@ async function postToServer(
 
 async function writeLocally(transactions: StatementTransaction[]): Promise<void> {
   const { getDb } = await import('../src/db.js');
-  const { importId } = await import('../src/statements.js');
-  const { normalizeDescription } = await import('../src/normalize.js');
+  const { loadStatementRows } = await import('../src/import.js');
 
   const db = getDb();
   const accounts = db.prepare('SELECT id FROM accounts ORDER BY id').all() as Array<{ id: string }>;
@@ -207,44 +210,16 @@ async function writeLocally(transactions: StatementTransaction[]): Promise<void>
     process.exit(1);
   }
   const accountId = accounts[0]!.id;
-  const now = new Date().toISOString();
 
-  const existing = db.prepare('SELECT 1 FROM transactions WHERE dedupe_key = ?');
-  const insert = db.prepare(
-    `INSERT INTO transactions (
-       id, account_id, date, amount_cents, description, normalized_description,
-       merchant, status, source, dedupe_key, raw, first_seen_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'posted', 'import', ?, ?, ?, ?)
-     ON CONFLICT (id) DO NOTHING`,
+  // Same routine the server runs, rather than a second copy of the dedupe
+  // rules that would drift from it.
+  const { inserted, duplicates, invalid } = loadStatementRows(db, accountId, transactions);
+  console.log(
+    `\nImported into ${accountId}: ${inserted} new, ${duplicates} already known` +
+      (invalid ? `, ${invalid} invalid` : '') + '.',
   );
-
-  let inserted = 0;
-  let duplicates = 0;
-  const load = db.transaction((items: StatementTransaction[]) => {
-    for (const item of items) {
-      if (existing.get(item.dedupeKey)) {
-        duplicates += 1;
-        continue;
-      }
-      insert.run(
-        importId(item.dedupeKey),
-        accountId,
-        item.date,
-        item.amountCents,
-        item.description,
-        normalizeDescription(item.description),
-        item.dedupeKey,
-        JSON.stringify({ source: 'chase-statement', section: item.section }),
-        now,
-        now,
-      );
-      inserted += 1;
-    }
-  });
-  load(transactions);
-
-  console.log(`\nImported into ${accountId}: ${inserted} new, ${duplicates} already known.`);
 }
+
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
@@ -258,8 +233,7 @@ async function main(): Promise<void> {
   }
 
   const all: StatementTransaction[] = [];
-  const seen = new Set<string>();
-  let duplicatesAcrossFiles = 0;
+  let unreconciled = 0;
 
   for (const file of files) {
     const parsed = parseStatement(pdfToText(file));
@@ -268,10 +242,10 @@ async function main(): Promise<void> {
         ? `${parsed.periodStart} to ${parsed.periodEnd}`
         : 'period not found';
 
-    const credits = parsed.transactions.filter((t) => t.amountCents > 0);
-    const debits = parsed.transactions.filter((t) => t.amountCents < 0);
     const sum = (rows: StatementTransaction[]): number =>
       rows.reduce((total, row) => total + row.amountCents, 0);
+    const credits = parsed.transactions.filter((t) => t.amountCents > 0);
+    const debits = parsed.transactions.filter((t) => t.amountCents < 0);
 
     console.log(
       `${file.split('/').pop()}  ${period}  ` +
@@ -281,27 +255,44 @@ async function main(): Promise<void> {
     if (parsed.transactions.length === 0) {
       console.log('  nothing parsed — check that this is a Chase checking statement');
     }
+
+    // Every row states the balance it produced, so a misread amount is caught
+    // here rather than months later as a Friday number that is quietly wrong.
+    if (parsed.reconciliation.ok) {
+      console.log(
+        `  reconciled against the statement: ${money(parsed.summary?.beginningBalanceCents ?? 0)}` +
+          ` to ${money(parsed.summary?.endingBalanceCents ?? 0)}`,
+      );
+    } else {
+      unreconciled += 1;
+      console.log('  DOES NOT RECONCILE:');
+      for (const problem of parsed.reconciliation.problems) console.log(`    ${problem}`);
+    }
+
     if (options.showSkipped && parsed.skipped.length > 0) {
       for (const line of parsed.skipped) console.log(`  skipped: ${line}`);
     }
 
-    for (const transaction of parsed.transactions) {
-      // Statements overlap at period boundaries; keep the first copy.
-      if (seen.has(transaction.dedupeKey)) {
-        duplicatesAcrossFiles += 1;
-        continue;
-      }
-      seen.add(transaction.dedupeKey);
-      all.push(transaction);
-    }
+    // Deliberately not deduplicated across files. These statements do not
+    // overlap — each begins the day after the last one ended — and collapsing
+    // by content here would silently drop two identical charges on one day.
+    // The database decides what is new, by counting; see src/import.ts.
+    all.push(...parsed.transactions);
   }
 
-  console.log(
-    `\n${all.length} unique transactions from ${files.length} statement(s)` +
-      (duplicatesAcrossFiles ? `, ${duplicatesAcrossFiles} overlapping rows dropped` : ''),
-  );
+  console.log(`\n${all.length} transactions from ${files.length} statement(s)`);
 
   if (all.length === 0) process.exit(1);
+
+  if (unreconciled > 0) {
+    console.error(
+      `\n${unreconciled} statement(s) did not reconcile. Nothing has been written.\n` +
+        'Importing money that does not add up is the failure this dashboard exists to\n' +
+        'prevent, so fix the parse first, or pass --force if you know why it differs.',
+    );
+    if (!options.force) process.exit(1);
+    console.error('Continuing anyway because --force was given.\n');
+  }
 
   if (options.dryRun) {
     console.log('\nDry run — nothing written. Sample:');
@@ -316,6 +307,7 @@ async function main(): Promise<void> {
   if (options.url) await postToServer(options.url, all);
   else await writeLocally(all);
 }
+
 
 main().catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
