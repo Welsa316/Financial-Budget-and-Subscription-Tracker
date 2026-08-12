@@ -206,7 +206,7 @@ function upcomingSection(data: DashboardViewData): string {
   return `      <section class="card card--next">
         <div class="hero__top">
           <h2 class="card__title">Due in the next 30 days</h2>
-          <span class="hero__when num">${esc(moneyAbs(total))}${anyVariable ? '+' : ''}</span>
+          <span class="card__total num">${esc(moneyAbs(total))}${anyVariable ? '+' : ''}</span>
         </div>
         <ul class="due">
           ${items
@@ -326,6 +326,15 @@ function commitmentRow(item: CommitmentStatus): string {
           </li>`;
 }
 
+/**
+ * Essentials open, subscriptions closed.
+ *
+ * Not symmetry for its own sake: there are three essentials and whether each is
+ * paid this month is the thing worth glancing at, while the ten subscriptions
+ * are a total you already know and a list you look at twice a year. Both
+ * headings carry their own total, so collapsing hides detail rather than
+ * information.
+ */
 function commitmentsSection(data: DashboardViewData): string {
   const essentials = data.commitments.filter((item) => item.type === 'essential');
   const subscriptions = data.commitments.filter((item) => item.type === 'subscription');
@@ -341,23 +350,27 @@ function commitmentsSection(data: DashboardViewData): string {
           } of ${totals.essentialsCount} essentials paid this month.</span>
         </p>
 
-        <h3 class="subhead subhead--essential">
-          Essentials <span class="subhead__amount num">${esc(
-            moneyAbs(totals.essentialsPerMonthCents),
-          )}/mo</span>
-        </h3>
-        <ul class="commits">
-          ${essentials.map(commitmentRow).join('\n          ')}
-        </ul>
+        <details class="group" open>
+          <summary class="subhead subhead--essential">
+            Essentials <span class="subhead__amount num">${esc(
+              moneyAbs(totals.essentialsPerMonthCents),
+            )}/mo</span>
+          </summary>
+          <ul class="commits">
+            ${essentials.map(commitmentRow).join('\n            ')}
+          </ul>
+        </details>
 
-        <h3 class="subhead">
-          Subscriptions <span class="subhead__amount num">${esc(
-            moneyAbs(totals.subscriptionsPerMonthCents),
-          )}/mo</span>
-        </h3>
-        <ul class="commits">
-          ${subscriptions.map(commitmentRow).join('\n          ')}
-        </ul>
+        <details class="group">
+          <summary class="subhead">
+            Subscriptions <span class="subhead__amount num">${esc(
+              moneyAbs(totals.subscriptionsPerMonthCents),
+            )}/mo</span>
+          </summary>
+          <ul class="commits">
+            ${subscriptions.map(commitmentRow).join('\n            ')}
+          </ul>
+        </details>
       </section>`;
 }
 
@@ -540,7 +553,7 @@ function reviewSection(data: DashboardViewData): string {
   return `      <section class="card card--review">
         <div class="hero__top">
           <h2 class="card__title">Needs a look</h2>
-          <span class="hero__when">${items.length}</span>
+          <span class="card__total">${items.length}</span>
         </div>
         <p class="card__lede">
           ${esc(moneyAbs(total))} worth confirming: places you have not spent at before,
