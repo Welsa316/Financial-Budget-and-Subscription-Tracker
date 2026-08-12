@@ -796,31 +796,30 @@ interface Row {
 }
 
 /**
- * The balance shown on the card that holds it.
- *
- * Only real things are printed: the bank's mark, the account's actual name,
- * the balance, and whether the sync is current. No invented PAN digits, no
- * drawn chip — a fabricated card number on a real bank's mark is exactly the
- * kind of confident fake this project keeps out.
+ * The balance shown on the card that holds it, drawn as the card: Chase blue
+ * field, the octagon and wordmark, a chip, the network. The one thing still
+ * never printed is a number that is not real - no invented PAN digits. The
+ * balance sits where the number would, which is the point of the object.
  */
 function bankCardHead(account: AccountRow, balance: number | null, trustworthy: boolean): string {
   const mark = BRAND_ICONS['chase'];
-  const institution =
-    account.institution && account.institution.toLowerCase().includes('chase') ? mark : undefined;
+  const chase = !!account.institution && account.institution.toLowerCase().includes('chase');
   return `<summary class="bankcard">
-                <span class="bankcard__mark" aria-hidden="true">${
-                  institution
-                    ? `<svg viewBox="0 0 24 24"><path d="${institution.path}" /></svg>`
-                    : ''
+                <span class="bankcard__brand" aria-hidden="true">${
+                  chase && mark
+                    ? `<svg viewBox="0 0 24 24"><path d="${mark.path}" /></svg><b>CHASE</b>`
+                    : `<b>${esc((account.institution ?? account.name).toUpperCase())}</b>`
                 }</span>
-                <span class="bankcard__name">${esc(account.name)}</span>
+                <span class="bankcard__corner${trustworthy ? '' : ' bankcard__corner--stale'}">${
+                  trustworthy ? 'Debit' : 'May be stale'
+                }</span>
+                <span class="bankcard__chip" aria-hidden="true"></span>
                 <span class="bankcard__label">Balance</span>
                 <span class="bankcard__figure num">${
                   balance === null ? '—' : moneyParts(balance)
                 }</span>
-                <span class="bankcard__stamp${trustworthy ? '' : ' bankcard__stamp--stale'}">${
-                  trustworthy ? esc(account.institution ?? 'Chase') : 'May be stale'
-                }</span>
+                <span class="bankcard__name">${esc(account.name)}</span>
+                <span class="bankcard__network" aria-hidden="true">VISA</span>
               </summary>`;
 }
 
