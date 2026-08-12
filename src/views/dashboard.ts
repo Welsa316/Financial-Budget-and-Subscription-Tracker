@@ -372,15 +372,27 @@ function sliceRows(slices: SpendingSlice[]): string {
   const largest = slices.reduce((max, slice) => Math.max(max, slice.cents), 0);
 
   return slices
-    .map(
-      (slice) => `<li class="slice">
-              <span class="slice__label">${esc(slice.label)}</span>
+    .map((slice) => {
+      const inner = `<span class="slice__label">${esc(slice.label)}</span>
               <span class="slice__bar" aria-hidden="true"><i class="w-${
                 largest === 0 ? 0 : Math.max(3, Math.round((slice.cents / largest) * 100))
               }"></i></span>
-              <span class="slice__amount num">${esc(moneyAbs(slice.cents))}</span>
-            </li>`,
-    )
+              <span class="slice__amount num">${esc(moneyAbs(slice.cents))}</span>`;
+
+      // The "N more" row is a total across several places, so there is nothing
+      // for it to open.
+      const rolled = /^\d+ more$/.test(slice.label);
+
+      return `<li class="slice">
+              ${
+                rolled
+                  ? inner
+                  : `<a class="slice__link" href="/?sort=place#place-${esc(
+                      placeSlug(slice.label),
+                    )}">${inner}</a>`
+              }
+            </li>`;
+    })
     .join('\n            ');
 }
 
@@ -483,6 +495,21 @@ function transactionRow(transaction: Classified): string {
               </div>
             </details>
           </li>`;
+}
+
+/**
+ * A place name reduced to something an id and a URL fragment can both carry.
+ *
+ * Collisions merely land you on a neighbouring group, which is why this stays
+ * a plain slug rather than something hashed and unreadable.
+ */
+function placeSlug(label: string): string {
+  return (
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'other'
+  );
 }
 
 // --- Needs review ---------------------------------------------------------
@@ -613,7 +640,7 @@ function placeGroup(group: PlaceGroup): string {
                   incoming ? '+' : ''
                 }${esc(moneyAbs(net))}</span>
               </summary>
-              <ul class="txns">
+              <ul class="txns" id="place-${esc(placeSlug(group.label))}">
                 ${group.transactions.map(transactionRow).join('\n                ')}
               </ul>
             </details>

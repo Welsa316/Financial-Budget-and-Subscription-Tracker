@@ -1441,3 +1441,28 @@ body:has(.offline-banner) .topbar {
   font-weight: 600;
   white-space: nowrap;
 }
+
+/* The whole slice row is the target, not just the label — a 6px bar is not a
+   tap target on a phone. The grid moves onto the link so the columns still
+   line up across rows. */
+.slice__link {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 44px;
+  text-decoration: none;
+}
+
+.slice__link:hover .slice__label {
+  text-decoration: underline;
+}
+
+/* The anchor sits on the list inside the group, which is what makes the
+   browser open it — but that puts the group's own heading off the top of the
+   screen without room reserved above. Enough for the heading plus the sticky
+   top bar; measured, not guessed. */
+.place > .txns {
+  scroll-margin-top: 9.5rem;
+}

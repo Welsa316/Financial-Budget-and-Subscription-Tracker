@@ -178,3 +178,51 @@ describe('"already spent" is auditable', () => {
     assert.doesNotMatch(html, /is made of/);
   });
 });
+
+/**
+ * Monarch's charts filter the transaction list; these bars now do the same.
+ * The link only works because both ends derive the slug from the same label,
+ * and because the anchor sits on the group's hidden content rather than its
+ * heading — a heading is never hidden, so it opens nothing.
+ */
+describe('the spending bars open the place they name', () => {
+  const txns = [
+    make('DOORDASH INC PAYMENT', '900.00', '2026-08-08'),
+    make('Card Purchase 08/09 Circle K # 07238 Kenner LA', '-22.10', '2026-08-09', {
+      merchant: 'Circle K',
+    }),
+    make('Card Purchase 08/10 Circle K # 07238 Kenner LA', '-18.75', '2026-08-10', {
+      merchant: 'Circle K',
+    }),
+  ];
+
+  it('links each bar to a place group', () => {
+    const html = render({}, txns);
+    assert.match(html, /href="\/\?sort=place#place-circle-k"/);
+  });
+
+  it('lands on an anchor the by-place view actually renders', () => {
+    const html = render({ recentSort: 'place' }, txns);
+    assert.match(html, /<ul class="txns" id="place-circle-k">/);
+  });
+
+  it('puts that anchor inside the group, which is what opens it', () => {
+    const html = render({ recentSort: 'place' }, txns);
+    const anchor = html.indexOf('id="place-circle-k"');
+    const details = html.lastIndexOf('<details class="place">', anchor);
+    const summary = html.lastIndexOf('<summary class="place__head"', anchor);
+
+    assert.ok(details > 0 && details < summary && summary < anchor, 'details, heading, then list');
+    assert.doesNotMatch(html, /<summary class="place__head" id=/, 'a heading is never hidden');
+  });
+
+  it('does not link the rolled-up "N more" row anywhere', () => {
+    // It is a total across several places, so there is nothing to open.
+    const many = Array.from({ length: 12 }, (_, i) =>
+      make(`Card Purchase 08/09 Unique Merchant ${i} LA`, `-${10 + i}.00`, '2026-08-09'),
+    );
+    const html = render({}, [...txns, ...many]);
+    assert.match(html, /more<\/span>/, 'the roll-up row exists');
+    assert.doesNotMatch(html, /href="[^"]*#place-\d+-more"/);
+  });
+});
