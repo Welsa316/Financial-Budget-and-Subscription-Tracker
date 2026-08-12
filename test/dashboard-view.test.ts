@@ -314,16 +314,40 @@ describe('rows', () => {
 
   it('states the number on the closed row, not only inside it', () => {
     const html = render({}, txns);
-    assert.match(head(html, 'Friday paycheck') ?? '', /\$/, 'the allowance is on the row');
     assert.match(head(html, 'Commitments') ?? '', /\$701\.76\/mo/);
     assert.match(head(html, 'Last 30 days') ?? '', /\$96\.42/);
   });
 
+  it('puts the paycheck above the rows at size, with the 30-day pair under it', () => {
+    const html = render({}, txns);
+    const heroMatch = html.match(/<section class="hero">([\s\S]*?)<\/section>/);
+    assert.ok(heroMatch, 'the hero renders');
+    const heroHtml = heroMatch![1]!;
+    assert.match(heroHtml, /hero__figure/, 'the allowance is the headline');
+    assert.match(heroHtml, /\$/, 'and carries a figure');
+    // The figure must be readable without opening anything: only the working
+    // sits behind the disclosure.
+    const beforeWorking = heroHtml.split('hero__working')[0]!;
+    assert.match(beforeWorking, /hero__figure/, 'the figure is outside the disclosure');
+    assert.match(beforeWorking, /In · 30d/, 'money in over the window');
+    assert.match(beforeWorking, /Out · 30d/, 'money out over the window');
+    // And the paycheck is no longer ALSO a row — one number, one place.
+    assert.equal(head(html, 'Friday paycheck'), null, 'not duplicated as a row');
+  });
+
   it('groups the rows under headings rather than stacking eight boxes', () => {
     const html = render({}, txns);
-    for (const heading of ['This week', 'Accounts', 'Coming up', 'Where it goes']) {
+    // 'This week' is gone from the default render: the paycheck moved into the
+    // hero, so the group only exists when the review queue gives it a reason.
+    for (const heading of ['Accounts', 'Coming up', 'Where it goes']) {
       assert.ok(html.includes(heading), `${heading} groups its rows`);
     }
+    assert.ok(!html.includes('This week'), 'an empty group renders no heading');
+    const withReview = render(
+      { review: [{ transaction: txns[1]!, reason: 'first-time', detail: 'x' }] },
+      txns,
+    );
+    assert.ok(withReview.includes('This week'), 'and returns when the queue has items');
   });
 
   it('keeps every row shut except the queue, which is there to be worked', () => {

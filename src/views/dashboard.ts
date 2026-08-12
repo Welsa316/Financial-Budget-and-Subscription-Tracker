@@ -9,6 +9,7 @@ import {
   type SpendingSlice,
 } from '../dashboard.js';
 import { standing, type SpentLine, type WeekSummary } from '../budget.js';
+import { BRAND_ICONS } from './brand-icons.js';
 import { SPEND_DAYS } from '../dashboard.js';
 import {
   CARD_GROUP,
@@ -93,7 +94,7 @@ function ordinal(n: number): string {
 }
 
 function paycheckDetail(data: DashboardViewData): string {
-  const { current, daysUntilPayday } = data.paycheck;
+  const { current } = data.paycheck;
   // A charge is only linkable if the card holding its anchor is actually
   // rendered. Hiding Recent transactions used to leave every one of these
   // pointing at an element that no longer existed.
@@ -104,25 +105,11 @@ function paycheckDetail(data: DashboardViewData): string {
   const ratePercent = Math.round(current.rate * 100);
   const share = Math.round(current.incomeCents * current.rate);
 
-  const when =
-    daysUntilPayday === 0
-      ? 'Payday is today'
-      : `${daysUntilPayday} day${daysUntilPayday === 1 ? '' : 's'} until Friday`;
-
   const rank = standing(data.paycheck);
-  const context = !rank.known
-    ? when
-    : `${when} · ${
-        rank.rank === 1
-          ? `best of the last ${rank.outOf}`
-          : rank.rank === rank.outOf
-            ? `worst of the last ${rank.outOf}`
-            : `${ordinal(rank.rank)} of the last ${rank.outOf}`
-      }`;
 
-  return `        <p class="detail__when">${esc(context)}</p>
-
-        <div class="stats3">
+  // The hero directly above already states the days-until and the rank;
+  // repeating them here read as a stutter the moment both were visible.
+  return `        <div class="stats3">
           <div class="stats3__cell stats3__cell--in">
             <span class="stats3__label">Earned</span>
             <span class="stats3__value num">${moneyParts(current.incomeCents)}</span>
@@ -250,7 +237,7 @@ function upcomingDetail(data: DashboardViewData): string {
             .map(
               (item) => `<li class="due__row">
             <span class="due__main">
-              <span class="due__name">${esc(item.name)}</span>
+              <span class="due__name">${brandMark(item)}${esc(item.name)}</span>
               <span class="due__when">${esc(formatDayMonth(item.nextDueDate!))} &middot; ${esc(
                 relativeDays(item.daysUntilDue ?? 0),
               )}</span>
@@ -319,6 +306,26 @@ function shapeDetail(data: DashboardViewData): string {
  * the essentials' paid/unpaid state off the right edge, which is the one thing
  * on this card that must not be missable.
  */
+/**
+ * The brand's own mark where there is one, a neutral disc where there is not.
+ *
+ * Monochrome on purpose. Apple's brand colour is #000000 and Railway's is
+ * #0B0D0E, so on a true-black page full colour makes two of these invisible —
+ * and eight brand hues would undo a palette built on one accent. The
+ * silhouette is what does the recognising anyway.
+ */
+function brandMark(item: CommitmentStatus): string {
+  const icon = item.icon ? BRAND_ICONS[item.icon] : undefined;
+  if (!icon) {
+    // A dot rather than a wrong logo: guessing a brand from a merchant string
+    // gets it confidently wrong, which is worse than plainly not knowing.
+    return `<span class="brand brand--none" aria-hidden="true"></span>`;
+  }
+  return `<span class="brand" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="${icon.path}" /></svg>
+            </span>`;
+}
+
 function commitmentRow(item: CommitmentStatus): string {
   const essential = item.type === 'essential';
 
@@ -343,9 +350,7 @@ function commitmentRow(item: CommitmentStatus): string {
 
   return `<li class="commit ${essential ? 'commit--essential' : ''}">
             <div class="commit__line">
-              <span class="commit__name">${
-                essential ? '<span class="dot" aria-hidden="true"></span>' : ''
-              }${esc(item.name)}</span>
+              <span class="commit__name">${brandMark(item)}${esc(item.name)}</span>
               <span class="commit__amount num">${esc(moneyAbs(item.perMonthCents))}${
                 item.variableAmount ? '+' : ''
               }<span class="commit__per">/mo</span></span>
@@ -428,20 +433,22 @@ function commitmentsDetail(data: DashboardViewData): string {
 // --- 5. Spending breakdown ------------------------------------------------
 
 /**
- * Bars are scaled against the largest row in their own group, not the grand
- * total. Against the total every row is a stub and the comparison is lost.
+ * Fill is the row's share of the whole window's spending. It used to scale
+ * against the group's largest row, which was fine while the bar was an
+ * abstract widget — but against a full-length visible track the biggest
+ * merchant would always read as 100% of spending, which is a lie. Against a
+ * track, fill has to mean share.
  */
-function sliceRows(slices: SpendingSlice[], linkPlaces: boolean): string {
+function sliceRows(slices: SpendingSlice[], totalCents: number, linkPlaces: boolean): string {
   if (slices.length === 0) return '<li class="slice slice--empty">Nothing in this window.</li>';
-  const largest = slices.reduce((max, slice) => Math.max(max, slice.cents), 0);
 
   return slices
     .map((slice) => {
       const inner = `<span class="slice__label">${esc(slice.label)}</span>
+              <span class="slice__amount num">${esc(moneyAbs(slice.cents))}</span>
               <span class="slice__bar" aria-hidden="true"><i class="w-${
-                largest === 0 ? 0 : Math.max(3, Math.round((slice.cents / largest) * 100))
-              }"></i></span>
-              <span class="slice__amount num">${esc(moneyAbs(slice.cents))}</span>`;
+                totalCents === 0 ? 0 : Math.max(2, Math.round((slice.cents / totalCents) * 100))
+              }"></i></span>`;
 
       // The "N more" row is a total across several places, so there is nothing
       // for it to open.
@@ -450,7 +457,7 @@ function sliceRows(slices: SpendingSlice[], linkPlaces: boolean): string {
       return `<li class="slice">
               ${
                 rolled || !linkPlaces
-                  ? inner
+                  ? `<span class="slice__link slice__link--plain">${inner}</span>`
                   : `<a class="slice__link" href="/?sort=place#place-${esc(
                       placeSlug(slice.label),
                     )}">${inner}</a>`
@@ -493,12 +500,12 @@ function spendingDetail(data: DashboardViewData): string {
 
         <h3 class="subhead">Subs &amp; bills</h3>
         <ul class="slices">
-            ${sliceRows(s.billCategories, linkPlaces)}
+            ${sliceRows(s.billCategories, s.totalCents, linkPlaces)}
         </ul>
 
         <h3 class="subhead">Everything else</h3>
         <ul class="slices">
-            ${sliceRows(s.discretionaryCategories, linkPlaces)}
+            ${sliceRows(s.discretionaryCategories, s.totalCents, linkPlaces)}
         </ul>`;
 }
 
@@ -825,6 +832,37 @@ interface Row {
   detail: string;
   /** Rows open on load. Reserved for something that needs answering now. */
   open?: boolean;
+  /** Replaces the standard icon/name/value head. The balance card uses it. */
+  headHtml?: string;
+}
+
+/**
+ * The balance shown on the card that holds it.
+ *
+ * Only real things are printed: the bank's mark, the account's actual name,
+ * the balance, and whether the sync is current. No invented PAN digits, no
+ * drawn chip — a fabricated card number on a real bank's mark is exactly the
+ * kind of confident fake this project keeps out.
+ */
+function bankCardHead(account: AccountRow, balance: number | null, trustworthy: boolean): string {
+  const mark = BRAND_ICONS['chase'];
+  const institution =
+    account.institution && account.institution.toLowerCase().includes('chase') ? mark : undefined;
+  return `<summary class="row__head bankcard">
+                <span class="bankcard__mark" aria-hidden="true">${
+                  institution
+                    ? `<svg viewBox="0 0 24 24"><path d="${institution.path}" /></svg>`
+                    : ''
+                }</span>
+                <span class="bankcard__name">${esc(account.name)}</span>
+                <span class="bankcard__label">Balance</span>
+                <span class="bankcard__figure num">${
+                  balance === null ? '—' : moneyParts(balance)
+                }</span>
+                <span class="bankcard__stamp${trustworthy ? '' : ' bankcard__stamp--stale'}">${
+                  trustworthy ? esc(account.institution ?? 'Chase') : 'May be stale'
+                }</span>
+              </summary>`;
 }
 
 function buildRows(data: DashboardViewData, trustworthy: boolean): Row[] {
@@ -839,16 +877,10 @@ function buildRows(data: DashboardViewData, trustworthy: boolean): Row[] {
 
   const rows: Row[] = [
     {
-      id: 'paycheck',
-      value: money(current.allowanceCents),
-      valueHtml: moneyParts(current.allowanceCents),
-      tone: current.allowanceCents < 0 ? 'negative' : 'positive',
-      detail: paycheckDetail(data),
-    },
-    {
       id: 'balances',
       value: balance === null ? '—' : money(balance),
       valueHtml: balance === null ? undefined : moneyParts(balance),
+      headHtml: account ? bankCardHead(account, balance, trustworthy) : undefined,
       detail: data.accounts.map((a) => balanceDetail(a, trustworthy)).join('\n'),
     },
     {
@@ -903,7 +935,9 @@ function buildRows(data: DashboardViewData, trustworthy: boolean): Row[] {
 function row(item: Row): string {
   return `<li class="row">
             <details class="row__d"${item.open ? ' open' : ''}>
-              <summary class="row__head">
+              ${
+                item.headHtml ??
+                `<summary class="row__head">
                 <span class="row__icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24"><path d="${CARD_ICONS[item.id]}" /></svg>
                 </span>
@@ -911,7 +945,8 @@ function row(item: Row): string {
                 <span class="row__value num${item.tone ? ` row__value--${item.tone}` : ''}">${
                   item.valueHtml ?? esc(item.value)
                 }</span>
-              </summary>
+              </summary>`
+              }
               <div class="row__body">
                 ${item.detail}
               </div>
@@ -944,6 +979,62 @@ function renderCards(data: DashboardViewData, trustworthy: boolean): string {
         <a class="btn btn--quiet btn--block" href="/cards">Choose cards</a>
       </section>`
   );
+}
+
+/**
+ * The one number the app exists for, at the top, at size.
+ *
+ * Light weight rather than heavy: at 64px a bold figure shouts, and the point
+ * of giving it the whole width is that it does not have to. Beneath it the two
+ * numbers that explain it — what came in and what went out over the same
+ * window — set small, wide-tracked and quiet, so the eye lands on the headline
+ * first and finds the reasoning second.
+ */
+function hero(data: DashboardViewData): string {
+  const { current, daysUntilPayday } = data.paycheck;
+  const rank = standing(data.paycheck);
+  const negative = current.allowanceCents < 0;
+
+  const when =
+    daysUntilPayday === 0
+      ? 'Payday is today'
+      : `${daysUntilPayday} day${daysUntilPayday === 1 ? '' : 's'} until Friday`;
+
+  const standingText = rank.known
+    ? rank.rank === 1
+      ? `best of the last ${rank.outOf}`
+      : rank.rank === rank.outOf
+        ? `worst of the last ${rank.outOf}`
+        : `${ordinal(rank.rank)} of the last ${rank.outOf}`
+    : null;
+
+  return `      <section class="hero">
+        <p class="hero__label">Friday paycheck</p>
+        <p class="hero__figure ${negative ? 'hero__figure--negative' : ''}">${moneyParts(
+          current.allowanceCents,
+        )}</p>
+        <p class="hero__meta">${esc(when)}${standingText ? ` · ${esc(standingText)}` : ''}</p>
+
+        <div class="hero__pair">
+          <div class="hero__stat">
+            <span class="hero__stat-label">In · ${data.spendDays}d</span>
+            <span class="hero__stat-value hero__stat-value--in">${moneyParts(
+              data.spending.incomeCents,
+            )}</span>
+          </div>
+          <div class="hero__stat">
+            <span class="hero__stat-label">Out · ${data.spendDays}d</span>
+            <span class="hero__stat-value">${moneyParts(-data.spending.totalCents)}</span>
+          </div>
+        </div>
+
+        <details class="hero__working">
+          <summary>How this week got here</summary>
+          <div class="hero__workingBody">
+            ${paycheckDetail(data)}
+          </div>
+        </details>
+      </section>`;
 }
 
 export function dashboardBody(data: DashboardViewData): string {
@@ -1038,6 +1129,7 @@ export function dashboardBody(data: DashboardViewData): string {
 
     <main class="wrap" id="main">
 ${banners}
+${data.layout.hidden.has('paycheck') ? '' : hero(data)}
 ${renderCards(data, trustworthy)}
 
       <section class="group">

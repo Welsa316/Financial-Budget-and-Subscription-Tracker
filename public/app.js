@@ -17,7 +17,7 @@
   // display on the child, so CSS cannot force it open — this can, and without
   // it the desktop layout is simply a wider set of collapsed rows.
   var wide = window.matchMedia('(min-width: 900px)');
-  var allRows = document.querySelectorAll('.row__d');
+  var allRows = document.querySelectorAll('.row__d, .hero__working');
 
   // Whatever the server decided is the phone's answer. The review queue ships
   // open because a queue nobody opens is a queue nobody clears, and narrowing

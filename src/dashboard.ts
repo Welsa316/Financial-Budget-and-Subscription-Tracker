@@ -28,6 +28,8 @@ export interface SpendingSlice {
 export interface SpendingBreakdown {
   days: number;
   totalCents: number;
+  /** Money in over the same window, for the pair under the headline. */
+  incomeCents: number;
   billsCents: number;
   discretionaryCents: number;
   billsPercent: number;
@@ -394,6 +396,10 @@ export function buildSpending(
     (transaction) => transaction.date >= since && transaction.amountCents < 0,
   );
 
+  const incomeCents = classified
+    .filter((t) => t.date >= since && t.classification === 'income')
+    .reduce((sum, t) => sum + t.amountCents, 0);
+
   const bills = window.filter((transaction) => transaction.classification === 'bill');
   const discretionary = window.filter(
     (transaction) => transaction.classification === 'discretionary',
@@ -406,6 +412,7 @@ export function buildSpending(
   return {
     days,
     totalCents,
+    incomeCents,
     billsCents,
     discretionaryCents,
     billsPercent: totalCents === 0 ? 0 : Math.round((billsCents / totalCents) * 100),

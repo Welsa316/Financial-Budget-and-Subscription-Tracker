@@ -25,19 +25,22 @@
      3:1 for that. 4.1:1 on --surface. */
   --line-control: #5c5c58;
 
-  /* Amber rather than the cyan-and-mint every generated fintech screen uses.
-     9.5:1 on --surface, and it is the one hue on the page, so it can mean
-     "this is the accent" without competing with the money colours. */
-  --accent: #f5a524;
-  --accent-soft: #241a08;
-  --accent-ink: #1a1205;
+  /* Mint, leaning cyan. 12.5:1 on --surface — on black a cool bright hue is
+     the only thing that carries, and this one is sharp rather than pastel. */
+  --accent: #45e0c8;
+  --accent-soft: #082521;
+  --accent-ink: #04211c;
 
-  /* Reserved strictly for direction of money and for trouble, so a page of
-     ordinary spending does not come out red. */
-  --positive: #4ade80;
-  --positive-soft: #0f2417;
-  --negative: #f87171;
+  /* Money in IS the accent. Two hues on the whole page — mint for money
+     arriving and for anything interactive, red for money leaving badly — is a
+     tighter palette than three, and it means the eye never has to tell a
+     bright green from a bright mint six pixels apart. */
+  --positive: #45e0c8;
+  --positive-soft: #082521;
+  --negative: #ff6b6b;
   --negative-soft: #2a1214;
+  /* Warnings stay warm on purpose: an amber caution is not the accent and not
+     an error, and it has to read as neither. */
   --warn-soft: #1f1708;
 
   --radius: 14px;
@@ -191,7 +194,7 @@ a {
 
 .card--warn {
   background: var(--warn-soft);
-  border-color: #4a3a12;
+  border-color: #4a3a12; /* amber caution, not the accent */
 }
 
 .card__title {
@@ -638,11 +641,12 @@ a.spent__link:hover .spent__label {
   flex-direction: column;
 }
 
+/* Name and amount on one line, a hairline track under them running the full
+   row. The fill is the row's share of the window, so the track has to be the
+   same length everywhere or the comparison is meaningless. Mint here is
+   emphasis, not direction — the signed figures keep that job. */
 .slice {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 3.25rem auto;
-  align-items: center;
-  gap: 0.6rem;
+  display: block;
   font-size: 0.9375rem;
 }
 
@@ -653,7 +657,8 @@ a.spent__link:hover .spent__label {
 }
 
 .slice__bar {
-  height: 6px;
+  grid-column: 1 / -1;
+  height: 3px;
   border-radius: 999px;
   background: var(--surface-sunk);
   overflow: hidden;
@@ -662,13 +667,15 @@ a.spent__link:hover .spent__label {
 .slice__bar i {
   display: block;
   height: 100%;
-  background: var(--line-strong);
+  background: var(--accent);
   border-radius: 999px;
 }
 
 .slice__amount {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  font-size: 0.875rem;
+  color: var(--ink-2);
 }
 
 .slice--empty {
@@ -1239,7 +1246,7 @@ select:focus-visible {
   background: var(--surface);
   border-color: var(--ink);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(245, 165, 36, 0.22);
+  box-shadow: 0 0 0 3px rgba(69, 224, 200, 0.22);
 }
 
 .auth__form .btn {
@@ -1353,11 +1360,13 @@ body:has(.offline-banner) .topbar {
    line up across rows. */
 .slice__link {
   display: grid;
-  grid-template-columns: subgrid;
-  grid-column: 1 / -1;
-  align-items: center;
-  gap: 0.6rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 0.6rem;
+  row-gap: 0.4rem;
   min-height: 44px;
+  align-content: center;
+  padding: 0.35rem 0;
   text-decoration: none;
 }
 
@@ -1781,12 +1790,48 @@ body:has(.offline-banner) .topbar {
     gap: 1.4rem;
   }
 
-  /* Alerts and the week that the page exists for run the full width. */
+  /* Alerts, the hero and the week the page exists for run the full width. */
   .card--alert,
   .card--warn,
   .card--prompt,
+  .hero,
   .group--lead {
     grid-column: 1 / -1;
+  }
+
+  /* Room to breathe once it owns the whole width; the pair spreads with it. */
+  .hero {
+    padding: 2.6rem 0 2.4rem;
+  }
+
+  .hero__figure {
+    font-size: 5.5rem;
+  }
+
+  .hero__pair {
+    gap: 5rem;
+  }
+
+  .hero__stat-value {
+    font-size: 1.25rem;
+  }
+
+  /* Desktop shows the working; only the phone needs to hide it. app.js opens
+     it, and only THEN does the summary disappear — with scripting gone the
+     details stays shut and the summary stays visible, so the content is
+     never stranded behind a control that no longer exists. */
+  .hero__working[open] > summary {
+    display: none;
+  }
+
+  .hero__working {
+    border-top: 0;
+  }
+
+  .hero__workingBody {
+    max-width: 34rem;
+    margin: 0.6rem auto 0;
+    text-align: left;
   }
 
   /* The lead group holds the week and its queue, so it runs wide and splits
@@ -1891,4 +1936,255 @@ body:has(.offline-banner) .topbar {
   .group:first-of-type {
     grid-column: 1 / -1;
   }
+}
+
+/* ---------- Brand marks ----------
+   Monochrome: Apple's brand colour is #000000 and Railway's #0B0D0E, so on a
+   true-black page full brand colour makes two of these disappear — and eight
+   competing hues would undo a palette built on one accent. The silhouette does
+   the recognising. */
+
+.brand {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--surface-sunk);
+  vertical-align: -0.35em;
+  margin-right: 0.5rem;
+  flex: none;
+}
+
+.brand svg {
+  width: 13px;
+  height: 13px;
+  fill: var(--ink);
+}
+
+/* No mark for this merchant. A neutral disc, never a guessed logo. */
+.brand--none::after {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line-control);
+}
+
+.due__name .brand,
+.commit__name .brand {
+  vertical-align: -0.3em;
+}
+
+/* ---------- The headline ----------
+   Light weight at size, centred, on the page rather than in a box. A number
+   given the whole width does not also need to be bold — that is shouting on
+   top of shouting — and the two figures under it stay quiet so the eye lands
+   on the headline first and finds the reasoning second. */
+
+.hero {
+  text-align: center;
+  padding: 1.6rem 0 2rem;
+}
+
+.hero__label,
+.hero__stat-label {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.hero__figure {
+  font-size: clamp(3.25rem, 17vw, 4.5rem);
+  font-weight: 300;
+  letter-spacing: -0.045em;
+  line-height: 1.05;
+  margin: 0.5rem 0 0.6rem;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+.hero__figure--negative {
+  color: var(--negative);
+}
+
+.hero__figure .money__cents {
+  font-size: 0.42em;
+  font-weight: 300;
+  letter-spacing: 0;
+  vertical-align: 0.55em;
+  color: var(--ink-3);
+}
+
+.hero__meta {
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+}
+
+.hero__pair {
+  display: flex;
+  justify-content: center;
+  gap: 3rem;
+  margin-top: 1.8rem;
+}
+
+.hero__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.hero__stat-value {
+  font-size: 1.0625rem;
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+}
+
+.hero__stat-value--in {
+  color: var(--positive);
+}
+
+.hero__stat-value .money__cents {
+  font-size: 0.8em;
+}
+
+/* The working is available, not in the way. */
+.hero__working {
+  margin-top: 1.8rem;
+  text-align: left;
+  border-top: 1px solid var(--line);
+}
+
+.hero__working > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 48px;
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+}
+
+.hero__working > summary::-webkit-details-marker {
+  display: none;
+}
+
+.hero__working > summary::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translate(-1px, -1px);
+  transition: transform 160ms ease;
+}
+
+.hero__working[open] > summary::after {
+  transform: rotate(-135deg) translate(-1px, -1px);
+}
+
+.hero__workingBody {
+  padding-bottom: 1rem;
+}
+
+/* ---------- The balance, on the card it lives on ----------
+   Real card proportions (85.6 x 54mm). Matte, like everything else here: the
+   metaphor comes from the shape, the bank's mark and where the balance sits,
+   not from a gradient or a drawn chip. Everything printed on it is real. */
+
+.bankcard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto 1fr auto;
+  gap: 0 0.8rem;
+  aspect-ratio: 1.586;
+  margin: 0.9rem var(--pad);
+  padding: 1.1rem 1.2rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  /* One step up from the wallet it sits in, so the shape reads without a
+     shadow (a shadow on black is a lie). */
+  background: var(--surface-sunk);
+}
+
+/* The row's chevron makes no sense on a card face. */
+.row__head.bankcard::after {
+  display: none;
+}
+
+.bankcard .bankcard__mark {
+  width: 26px;
+  height: 26px;
+}
+
+.bankcard__mark svg {
+  width: 100%;
+  height: 100%;
+  fill: var(--ink);
+}
+
+.bankcard__name {
+  grid-column: 2;
+  justify-self: end;
+  font-size: 0.75rem;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.bankcard__label {
+  grid-column: 1 / -1;
+  align-self: end;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.bankcard__figure {
+  grid-column: 1;
+  font-size: 1.75rem;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin-top: 0.3rem;
+}
+
+.bankcard__figure .money__cents {
+  font-size: 0.7em;
+  color: var(--ink-3);
+}
+
+.bankcard__stamp {
+  grid-column: 2;
+  align-self: end;
+  justify-self: end;
+  font-size: 0.75rem;
+  color: var(--ink-3);
+}
+
+.bankcard__stamp--stale {
+  color: var(--negative);
+}
+
+/* The card face replaces the standard row head, so it carries its own
+   disclosure affordance and hover instead of inheriting the row's. */
+.bankcard::-webkit-details-marker {
+  display: none;
+}
+
+details > .bankcard {
+  cursor: pointer;
+  list-style: none;
+}
+
+details > .bankcard:hover {
+  border-color: var(--line-control);
 }
