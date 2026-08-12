@@ -40,9 +40,9 @@ export interface SpendingBreakdown {
  * How the transaction list is ordered. "place" groups it by where the money
  * went, which needs a wider window than 25 rows to say anything useful.
  */
-export type RecentSort = 'date' | 'place';
+export type RecentSort = 'date' | 'place' | 'category';
 
-export const RECENT_LIMITS: Record<RecentSort, number> = { date: 25, place: 100 };
+export const RECENT_LIMITS: Record<RecentSort, number> = { date: 25, place: 100, category: 100 };
 
 /** Windows the spending breakdown can be read over. */
 export const SPEND_DAYS = [7, 30, 90] as const;

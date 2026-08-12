@@ -47,6 +47,12 @@ export interface EssentialRule {
   nominalDayOfMonth?: number;
 }
 
+export interface CategoryRule {
+  name: string;
+  /** Lowercased substrings tested against the normalized description, in order. */
+  patterns: string[];
+}
+
 export interface Rules {
   allowance: { rate: number; weekStartsOn: string };
   incomeBaseline: {
@@ -61,6 +67,7 @@ export interface Rules {
   essentials: EssentialRule[];
   billPatterns: { patterns: string[] };
   neverSubscription: { patterns: string[] };
+  categories: { list: CategoryRule[] };
   exclude: { patterns: string[] };
   income: { include: string[]; exclude: string[] };
   grouping: { windowDays: number };
@@ -89,6 +96,31 @@ function validate(raw: Rules): Rules {
     }
     if (!Number.isInteger(subscription.amountCents)) {
       fail(`${subscription.name}: amountCents must be an integer number of cents`);
+    }
+  }
+
+  // These names are assigned structurally (from what a transaction already
+  // is), so a pattern category must not shadow them.
+  const reserved = new Set(['Subscriptions', 'Essentials', 'Income', 'Transfers & ignored', 'Uncategorized']);
+  if (!Array.isArray(raw.categories?.list)) fail('categories.list must be an array');
+  const seenCategories = new Set<string>();
+  for (const category of raw.categories.list) {
+    if (!category.name) fail('every category needs a name');
+    if (reserved.has(category.name)) {
+      fail(`category "${category.name}" is reserved - it is assigned structurally`);
+    }
+    if (seenCategories.has(category.name)) fail(`category "${category.name}" appears twice`);
+    seenCategories.add(category.name);
+    if (!Array.isArray(category.patterns) || category.patterns.length === 0) {
+      fail(`${category.name}: patterns must be a non-empty array`);
+    }
+    for (const pattern of category.patterns) {
+      if (typeof pattern !== 'string' || pattern.length === 0) {
+        fail(`${category.name}: every pattern must be a non-empty string`);
+      }
+      if (pattern !== pattern.toLowerCase()) {
+        fail(`${category.name}: pattern "${pattern}" must be lowercase - matching is against lowercased text`);
+      }
     }
   }
 

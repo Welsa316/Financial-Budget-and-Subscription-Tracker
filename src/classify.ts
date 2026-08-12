@@ -38,6 +38,14 @@ export interface Classified {
    */
   isCredit: boolean;
   overridden: boolean;
+  /**
+   * Where the money went, one level finer than the classification. Structural
+   * when the transaction already has an identity (Subscriptions, Essentials,
+   * Income, Transfers & ignored), pattern-matched from rules.categories for
+   * ordinary spending, and Uncategorized when nothing matches - visibly, so
+   * the rules can grow instead of the gap hiding.
+   */
+  category: string;
 }
 
 function matchesAny(haystack: string, patterns: string[]): string | null {
@@ -94,6 +102,33 @@ export function classifyOne(
   override: Classification | null,
   rules: Rules = getRules(),
 ): Classified {
+  const core = classifyCore(transaction, override, rules);
+  return { ...core, category: categoryFor(core, rules) };
+}
+
+/**
+ * Category is derived AFTER classification, from the finished result: a
+ * transaction that already has an identity keeps it, and only ordinary
+ * spending reaches the patterns. Overrides therefore move category too -
+ * reclassifying a charge as income files it under Income.
+ */
+function categoryFor(core: Omit<Classified, 'category'>, rules: Rules): string {
+  if (core.commitmentType === 'subscription') return 'Subscriptions';
+  if (core.commitmentType === 'essential') return 'Essentials';
+  if (core.classification === 'income') return 'Income';
+  if (core.classification === 'ignore') return 'Transfers & ignored';
+  const text = core.normalized.toLowerCase();
+  for (const category of rules.categories.list) {
+    if (category.patterns.some((pattern) => text.includes(pattern))) return category.name;
+  }
+  return 'Uncategorized';
+}
+
+function classifyCore(
+  transaction: ClassifiableTransaction,
+  override: Classification | null,
+  rules: Rules,
+): Omit<Classified, 'category'> {
   const text = transaction.normalized_description;
   const amount = transaction.amount_cents;
 

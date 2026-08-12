@@ -297,3 +297,66 @@ describe('classify: config totals', () => {
     assert.equal(essentials, 48500, 'essentials total $485.00');
   });
 });
+
+describe('classify: categories', () => {
+  it('categorizes real merchant strings from the statements', () => {
+    const cases: Array<[string, string, string]> = [
+      ['Card Purchase 12/23 Exxon Diaz Market Kenner LA Card 7975', '-16.30', 'Gas & convenience'],
+      ['Card Purchase 12/24 Circle K # 07238 Kenner LA Card 7975', '-6.42', 'Gas & convenience'],
+      ['Card Purchase 02/06 Rouses Market # 33 Metairie LA Card 7975', '-13.12', 'Groceries'],
+      ['Card Purchase With Pin 12/28 Cvs/Pharmacy #05383 Metairie LA', '-10.47', 'Pharmacy & health'],
+      ['Card Purchase 12/24 Sonic Drive IN #4342 504-469-0349 LA Car', '-4.69', 'Eating out'],
+      ['Card Purchase 03/09 Tst*Blazin Hot Chicken New Orleans LA Ca', '-17.36', 'Eating out'],
+      ['Card Purchase 01/07 Wl *Steam Purchase 425-889-9642 WA Card', '-21.10', 'Games'],
+      ['Recurring Card Purchase 01/16 Google *Chatgpt 855-836-3987 C', '-21.94', 'Software & AI'],
+      ['Card Purchase 05/19 Amazon Mktpl*O72Cb5C Amzn.Com/Bill WA Ca', '-76.81', 'Shopping'],
+      ['Zelle Payment To Benson 27475729821', '-17.50', 'Sent to people'],
+      ['Card Purchase 04/16 Pcrf.Net Pcrf.Net CA Card 7975', '-5.53', 'Giving'],
+      ['Dave Davesubfee Web ID: 2871020853', '-1.00', 'Fees'],
+    ];
+    for (const [description, amount, expected] of cases) {
+      assert.equal(classify(txn(description, amount)).category, expected, description);
+    }
+  });
+
+  it('gives structural categories to what already has an identity', () => {
+    // A subscription is Subscriptions even though netflix appears nowhere in
+    // the category patterns; same for essentials, income and transfers.
+    assert.equal(
+      classify(txn('Recurring Card Purchase 12/16 Netflix.Com 866-5797172 CA', '-40.58')).category,
+      'Subscriptions',
+    );
+    assert.equal(
+      classify(txn('Zelle Payment To Dad 27485421531', '-165.00')).category,
+      'Essentials',
+    );
+    assert.equal(
+      classify(txn('Doordash, Inc. Payments 8397', '900.00')).category,
+      'Income',
+    );
+    assert.equal(
+      classify(txn('Online Transfer To Sav 8621 Transaction#: 27500335163', '-100.00')).category,
+      'Transfers & ignored',
+    );
+  });
+
+  it('sends the unmatched to Uncategorized rather than guessing', () => {
+    assert.equal(
+      classify(txn('Card Purchase 08/01 Some Brand New Store Kenner LA', '-12.00')).category,
+      'Uncategorized',
+    );
+  });
+
+  it('moves category with a manual override', () => {
+    const t = txn('Card Purchase 08/01 Some Brand New Store Kenner LA', '25.00');
+    assert.equal(classifyOne(t, 'income', rules).category, 'Income');
+  });
+
+  it('does not let the Toast prefix match inside ordinary words', () => {
+    // 'tst ' carries its trailing space: "outstanding" contains "tst".
+    assert.equal(
+      classify(txn('Card Purchase 08/01 Outstanding Motors LLC Kenner LA', '-50.00')).category,
+      'Uncategorized',
+    );
+  });
+});

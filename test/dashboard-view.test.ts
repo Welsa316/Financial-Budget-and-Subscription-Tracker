@@ -403,6 +403,29 @@ describe('rows', () => {
  * the next begins. Both reference apps break the list by day and put the day's
  * total on the heading.
  */
+describe('transactions by category', () => {
+  const txns = [
+    make('Card Purchase 08/10 Circle K # 07238 Kenner LA', '-20.00', '2026-08-10'),
+    make('Card Purchase 08/10 Sonic Drive IN #4342 LA', '-8.50', '2026-08-10'),
+    make('Card Purchase 08/09 Some Brand New Store Kenner LA', '-12.00', '2026-08-09'),
+    make('DOORDASH INC PAYMENT', '300.00', '2026-08-08'),
+  ];
+
+  it('clusters by category with Uncategorized pinned last', () => {
+    const html = render({ recentSort: 'category' }, txns);
+    const order = [...html.matchAll(/id="cat-([a-z0-9-]+)"/g)].map((m) => m[1]);
+    assert.ok(order.includes('gas-convenience') || order.includes('gas-and-convenience'), `gas cluster in ${order}`);
+    assert.equal(order[order.length - 1], 'uncategorized', 'Uncategorized is last');
+    assert.match(html, /By category/, 'the third chip renders');
+    assert.match(html, /aria-current="true"[^>]*>By category|chip--on"[^>]*href="\/\?sort=category"/, 'and is active');
+  });
+
+  it('does not render category anchors on the other sorts', () => {
+    assert.doesNotMatch(render({}, txns), /id="cat-/);
+    assert.doesNotMatch(render({ recentSort: 'place' }, txns), /id="cat-/);
+  });
+});
+
 describe('transactions by day', () => {
   const txns = [
     make('Card Purchase 08/12 Cafe Du Monde', '-4.00', '2026-08-12'),

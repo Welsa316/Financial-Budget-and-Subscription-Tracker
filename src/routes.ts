@@ -322,7 +322,8 @@ router.post('/override', (req: Request, res: Response) => {
 
 router.get('/', (req: Request, res: Response) => {
   const db = getDb();
-  const recentSort: RecentSort = req.query.sort === 'place' ? 'place' : 'date';
+  const recentSort: RecentSort =
+    req.query.sort === 'place' ? 'place' : req.query.sort === 'category' ? 'category' : 'date';
   const spendDays: SpendDays = isSpendDays(req.query.days) ? (Number(req.query.days) as SpendDays) : 30;
 
   const accounts = db

@@ -656,7 +656,30 @@ function groupByPlace(transactions: Classified[]): PlaceGroup[] {
   );
 }
 
-function placeGroup(group: PlaceGroup): string {
+function groupByCategory(transactions: Classified[]): PlaceGroup[] {
+  const groups = new Map<string, PlaceGroup>();
+
+  for (const transaction of transactions) {
+    const label = transaction.category;
+    const group =
+      groups.get(label) ?? { label, outCents: 0, inCents: 0, transactions: [] as Classified[] };
+    if (transaction.amountCents < 0) group.outCents += Math.abs(transaction.amountCents);
+    else group.inCents += transaction.amountCents;
+    group.transactions.push(transaction);
+    groups.set(label, group);
+  }
+
+  // Uncategorized pins last whatever its size: it is the worklist, not a
+  // ranking entry, and burying it mid-list would hide exactly the thing it
+  // exists to surface.
+  return [...groups.values()].sort((a, b) => {
+    if (a.label === 'Uncategorized') return 1;
+    if (b.label === 'Uncategorized') return -1;
+    return b.outCents - a.outCents || a.label.localeCompare(b.label);
+  });
+}
+
+function placeGroup(group: PlaceGroup, anchorPrefix = 'place'): string {
   const count = group.transactions.length;
   const net = group.outCents - group.inCents;
   // A place that paid you more than you paid it — wages, or a full refund.
@@ -684,7 +707,7 @@ function placeGroup(group: PlaceGroup): string {
                   incoming ? '+' : ''
                 }${esc(moneyAbs(net))}</span>
               </summary>
-              <ul class="txns" id="place-${esc(placeSlug(group.label))}">
+              <ul class="txns" id="${anchorPrefix}-${esc(placeSlug(group.label))}">
                 ${group.transactions.map((row) => transactionRow(row)).join('\n                ')}
               </ul>
             </details>
@@ -732,30 +755,36 @@ function byDay(transactions: Classified[], today: string): string {
 }
 
 function transactionsDetail(data: DashboardViewData): string {
-  const byPlace = data.recentSort === 'place';
+  const sort = data.recentSort;
 
   // Plain links, so the sort survives a reload and can be bookmarked. There is
   // no client-side state to lose.
+  const chip = (href: string, label: string, on: boolean): string =>
+    `<a class="chip ${on ? 'chip--on' : ''}" href="${href}"${on ? ' aria-current="true"' : ''}>${label}</a>`;
   const toggle = `<div class="sortbar" role="group" aria-label="Sort transactions">
-          <a class="chip ${byPlace ? '' : 'chip--on'}" href="/"${
-            byPlace ? '' : ' aria-current="true"'
-          }>Newest</a>
-          <a class="chip ${byPlace ? 'chip--on' : ''}" href="/?sort=place"${
-            byPlace ? ' aria-current="true"' : ''
-          }>By place</a>
+          ${chip('/', 'Newest', sort === 'date')}
+          ${chip('/?sort=place', 'By place', sort === 'place')}
+          ${chip('/?sort=category', 'By category', sort === 'category')}
         </div>`;
 
-  const body = byPlace
-    ? `<ul class="places">
-          ${groupByPlace(data.recent).map(placeGroup).join('\n          ')}
+  const body =
+    sort === 'place'
+      ? `<ul class="places">
+          ${groupByPlace(data.recent).map((group) => placeGroup(group)).join('\n          ')}
         </ul>`
-    : byDay(data.recent, data.today);
+      : sort === 'category'
+        ? `<ul class="places">
+          ${groupByCategory(data.recent).map((group) => placeGroup(group, 'cat')).join('\n          ')}
+        </ul>`
+        : byDay(data.recent, data.today);
 
   return `        ${toggle}
         <p class="card__lede">${
-          byPlace
+          sort === 'place'
             ? `The last ${data.recent.length} transactions, gathered by where the money went, biggest first.`
-            : 'Tap any row to see why it was classified that way, and change it.'
+            : sort === 'category'
+              ? `The last ${data.recent.length} transactions by category. Anything in Uncategorized needs a new pattern in the rules.`
+              : 'Tap any row to see why it was classified that way, and change it.'
         }</p>
         ${
           data.recent.length === 0

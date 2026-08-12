@@ -179,6 +179,225 @@
       "dave membership"
     ]
   },
+  "categories": {
+    "_comment": [
+      "Spending categories for the by-category view, derived from 7 months of",
+      "real statements (Dec 2025 - Jul 2026). Ordered, first match wins, matched",
+      "on the normalized description. Commitments, income and transfers are",
+      "categorized by what they already are and never reach these patterns:",
+      "subscriptions -> Subscriptions, essentials -> Essentials, income ->",
+      "Income, excluded -> Transfers & ignored. Anything unmatched lands in",
+      "Uncategorized, which stays visible on purpose - it is the worklist for",
+      "growing this list. Against the 7 real months these patterns leave under",
+      "2% of categorizable spend uncategorized; keep it that way when adding",
+      "merchants.",
+      "'tst ' is the Toast point-of-sale prefix restaurants bill under - the",
+      "trailing space is load-bearing ('outstanding' contains 'tst').",
+      "'brothers' is Brothers Food Mart, a New Orleans gas station chain."
+    ],
+    "list": [
+      {
+        "name": "Gas & convenience",
+        "patterns": [
+          "exxon",
+          "circle k",
+          "circlek",
+          "shell oil",
+          "racetrac",
+          "chevron",
+          "texaco",
+          "discount zone",
+          "fast stop",
+          "7-eleven",
+          "brothers",
+          "car wash",
+          "quality tire",
+          "toyota",
+          "autozone",
+          "jiffy lube",
+          "take 5",
+          "valvoline"
+        ]
+      },
+      {
+        "name": "Groceries",
+        "patterns": [
+          "rouses",
+          "rouse s market",
+          "sams club",
+          "costco",
+          "winn-dixie",
+          "winn dixie",
+          "whole foods",
+          "trader joe",
+          "aldi",
+          "kroger",
+          "dollar general",
+          "dollar tree"
+        ]
+      },
+      {
+        "name": "Pharmacy & health",
+        "patterns": [
+          "cvs",
+          "walgreens",
+          "pharmacy",
+          "rite aid",
+          "urgent care",
+          "clinic",
+          "dental",
+          "optical"
+        ]
+      },
+      {
+        "name": "Eating out",
+        "patterns": [
+          "sonic",
+          "taco bell",
+          "tasty foods",
+          "chipotle",
+          "7 woks",
+          "felipe",
+          "little caesars",
+          "krispy",
+          "mcdonald",
+          "tutti frutti",
+          "brew coffee",
+          "dutchbros",
+          "starbucks",
+          "french press",
+          "tst ",
+          "shawarma",
+          "uber eats",
+          "doordash",
+          "coca cola",
+          "pizza",
+          "cafe",
+          "coffee",
+          "deli",
+          "bakery",
+          "donut",
+          "burger",
+          "grill",
+          "chicken",
+          "waffle",
+          "popeyes",
+          "raising cane",
+          "chick-fil",
+          "panda express",
+          "smoothie",
+          "juice",
+          "kitchen",
+          "taqueria",
+          "po-boy",
+          "poboy",
+          "seafood"
+        ]
+      },
+      {
+        "name": "Games",
+        "patterns": [
+          "playstation",
+          "steam",
+          "roblox",
+          "game pass",
+          "xbox",
+          "nintendo",
+          "epic games",
+          "riot games"
+        ]
+      },
+      {
+        "name": "Software & AI",
+        "patterns": [
+          "chatgpt",
+          "openai",
+          "cloudflare",
+          "vercel",
+          "paddle",
+          "elfsight",
+          "github",
+          "netlify",
+          "digitalocean",
+          "namecheap",
+          "godaddy",
+          "jetbrains",
+          "microsoft store",
+          "google ",
+          "cleanup.pictures",
+          "cleanup pictures",
+          "lexinter",
+          "setapp",
+          "apple com bill"
+        ]
+      },
+      {
+        "name": "Pay later",
+        "patterns": [
+          "klarna",
+          "affirm",
+          "zip ",
+          "afterpay",
+          "sezzle"
+        ],
+        "_comment": "BNPL installments. Before Shopping on purpose: 'Klarna*Best Buy' is a payment plan, not a Best Buy run."
+      },
+      {
+        "name": "Shopping",
+        "patterns": [
+          "amazon",
+          "amzn",
+          "target",
+          "best buy",
+          "bestbuy",
+          "ups store",
+          "ebay",
+          "etsy",
+          "five below",
+          "office depot",
+          "home depot",
+          "lowes",
+          "walmart",
+          "wal-mart",
+          "barnes"
+        ]
+      },
+      {
+        "name": "Sent to people",
+        "patterns": [
+          "zelle payment to",
+          "zelle to",
+          "cash app",
+          "venmo",
+          "apple cash"
+        ]
+      },
+      {
+        "name": "Giving",
+        "patterns": [
+          "pcrf",
+          "donation",
+          "gofundme",
+          "launchgood",
+          "islamic relief",
+          "zakat",
+          "masjid",
+          "mosque"
+        ]
+      },
+      {
+        "name": "Fees",
+        "patterns": [
+          "davesubfee",
+          "acctverify",
+          "atm fee",
+          "overdraft",
+          "wire fee",
+          "insufficient funds"
+        ]
+      }
+    ]
+  },
   "exclude": {
     "_comment": [
       "Neither income nor spending.",
