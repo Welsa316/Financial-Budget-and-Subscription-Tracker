@@ -155,6 +155,13 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     return;
   }
 
+  // Balances must not linger in the browser's disk cache after signing out,
+  // where the Back button would render them again. app.js clears the service
+  // worker's cache on logout, but it cannot reach the HTTP cache; this can.
+  // The offline snapshot is unaffected — the service worker stores pages with
+  // cache.put(), and the Cache API ignores these directives.
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+
   res.locals.session = session;
   next();
 }

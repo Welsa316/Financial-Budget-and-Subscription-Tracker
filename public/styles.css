@@ -11,6 +11,11 @@
   --ink-3: #736a5e;
   --line: #e4ddd0;
   --line-strong: #d2c8b6;
+  /* The boundary of anything you can press or type into. WCAG 1.4.11 wants 3:1
+     for that, and --line-strong manages 1.63:1 on --surface — chips and inputs
+     had no visible edge at all in bright light. This clears 3.85:1 on --surface
+     and 3.47:1 on --bg. Decorative rules keep --line-strong. */
+  --line-control: #8b7f6e;
 
   --positive: #17703f;
   --positive-soft: #e6f0e7;
@@ -831,7 +836,7 @@ a.spent__link:hover .spent__label {
   appearance: none;
   min-height: 44px;
   padding: 0.35rem 0.75rem;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line-control);
   border-radius: 999px;
   background: var(--surface);
   color: var(--ink-2);
@@ -1060,7 +1065,7 @@ a.spent__link:hover .spent__label {
 .btn {
   --btn-bg: transparent;
   --btn-fg: var(--ink);
-  --btn-border: var(--line-strong);
+  --btn-border: var(--line-control);
   appearance: none;
   display: inline-flex;
   align-items: center;
@@ -1200,7 +1205,7 @@ select:focus-visible {
   font: inherit;
   color: var(--ink);
   background: var(--bg);
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line-control);
   border-radius: var(--radius-sm);
   transition: border-color 140ms ease, background 140ms ease;
 }
@@ -1240,6 +1245,16 @@ select:focus-visible {
 /* ---------- Offline snapshot banner ----------
    Injected by the service worker when it serves a cached page, so a stale
    number is never mistaken for a live one. */
+/* The banner is injected straight after <body>, so it and .topbar are siblings
+   both sticking to top: 0. The banner outranks the topbar, so as soon as you
+   scrolled it parked on top of it and hid the sync stamp. Offline the banner is
+   the more important of the two — it is the reason the numbers cannot be
+   trusted — so it keeps the sticky slot and the topbar scrolls away with the
+   content it describes. */
+body:has(.offline-banner) .topbar {
+  position: static;
+}
+
 .offline-banner {
   position: sticky;
   top: 0;

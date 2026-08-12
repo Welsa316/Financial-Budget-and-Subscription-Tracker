@@ -111,11 +111,42 @@ function prompt(question: string): Promise<string> {
   });
 }
 
+/**
+ * Reads a secret without echoing it.
+ *
+ * readline writes every keystroke to the output stream, so the dashboard
+ * password was printed in full as it was typed and left sitting in the
+ * terminal's scrollback for anyone who scrolled up.
+ *
+ * Suppressing readline's own write hook rather than printing asterisks means
+ * nothing is emitted at all while typing, so editing keys cannot leave stray
+ * characters on the line either.
+ */
+function promptSecret(question: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+  let muted = false;
+  (rl as unknown as { _writeToOutput: (text: string) => void })._writeToOutput = (text) => {
+    if (!muted) process.stdout.write(text);
+  };
+
+  return new Promise((resolvePrompt) => {
+    // question() writes the prompt synchronously, so muting after it keeps the
+    // question visible and hides only what is typed in reply.
+    rl.question(question, (answer) => {
+      muted = false;
+      rl.close();
+      process.stdout.write('\n');
+      resolvePrompt(answer);
+    });
+    muted = true;
+  });
+}
+
 async function postToServer(
   baseUrl: string,
   transactions: StatementTransaction[],
 ): Promise<void> {
-  const password = process.env.DASHBOARD_PASSWORD ?? (await prompt('Dashboard password: '));
+  const password = process.env.DASHBOARD_PASSWORD ?? (await promptSecret('Dashboard password: '));
 
   const login = await fetch(new URL('/login', baseUrl), {
     method: 'POST',
