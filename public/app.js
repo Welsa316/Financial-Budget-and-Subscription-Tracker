@@ -17,20 +17,34 @@
   // display on the child, so CSS cannot force it open — this can, and without
   // it the desktop layout is simply a wider set of collapsed rows.
   var wide = window.matchMedia('(min-width: 900px)');
-  var allRows = document.querySelectorAll('.row__d, .hero__working');
+  // Everything except the per-transaction drill-down: desktop flattens every
+  // section disclosure, while opening a single charge to reclassify it stays
+  // an action on both widths.
+  var allRows = document.querySelectorAll('details:not(.txn__details)');
 
   // Whatever the server decided is the phone's answer. The review queue ships
   // open because a queue nobody opens is a queue nobody clears, and narrowing
   // the window must put that back rather than closing everything alike.
   for (var r = 0; r < allRows.length; r++) {
     allRows[r].dataset.byDefault = allRows[r].open ? 'open' : 'shut';
-    allRows[r].addEventListener('toggle', function () {
-      this.dataset.touched = '1';
-    });
+    // Touched means the USER toggled it. The toggle event cannot tell who
+    // acted — a programmatic .open change fires it too, so the desktop
+    // auto-open used to mark every section touched and the narrow-width
+    // restore then skipped all of them. A click on the summary is the user.
+    var summary = allRows[r].querySelector(':scope > summary');
+    if (summary) {
+      summary.addEventListener('click', function () {
+        this.parentNode.dataset.touched = '1';
+      });
+    }
   }
 
   function fitRowsToWidth(query) {
     for (var i = 0; i < allRows.length; i++) {
+      var summary = allRows[i].querySelector(':scope > summary');
+      // Flattened summaries are labels, not controls: CSS takes them out of
+      // the pointer's reach, this takes them out of the tab order.
+      if (summary) summary.tabIndex = query.matches ? -1 : 0;
       // A deliberate collapse survives a resize.
       if (allRows[i].dataset.touched) continue;
       allRows[i].open = query.matches || allRows[i].dataset.byDefault === 'open';

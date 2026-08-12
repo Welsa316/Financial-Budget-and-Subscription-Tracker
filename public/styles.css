@@ -1824,6 +1824,24 @@ body:has(.offline-banner) .topbar {
     display: none;
   }
 
+  /* Desktop has no dropdowns at all. Scripting opens every disclosure except
+     the per-transaction drill-down (that one is an action on a single row,
+     not a hidden section), and once open a summary stops being a control —
+     it reads as the label of the content beneath it. Everything is gated on
+     [open] so a scripting failure leaves working controls, never stranded
+     content. */
+  details[open]:not(.txn__details) > summary {
+    pointer-events: none;
+    cursor: default;
+  }
+
+  .row__d[open] > .row__head::after,
+  .disclosure[open] > summary::before,
+  .subgroup[open] > summary::before,
+  .place[open] > .place__head::before {
+    display: none;
+  }
+
   .hero__working {
     border-top: 0;
   }
