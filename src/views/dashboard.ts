@@ -796,30 +796,27 @@ interface Row {
 }
 
 /**
- * The balance shown on the card that holds it, drawn as the card: Chase blue
- * field, the octagon and wordmark, a chip, the network. The one thing still
- * never printed is a number that is not real - no invented PAN digits. The
- * balance sits where the number would, which is the point of the object.
+ * The balance shown on the card that holds it, drawn as the newer Chase
+ * debit: deep navy field, wordmark and octagon, the Debit/VISA corner. No
+ * chip (per Walid) and nothing invented - the balance sits where the card
+ * number would. Staleness is not printed on the card; the topbar, the sync
+ * banner and the balance detail already carry it.
  */
-function bankCardHead(account: AccountRow, balance: number | null, trustworthy: boolean): string {
+function bankCardHead(account: AccountRow, balance: number | null): string {
   const mark = BRAND_ICONS['chase'];
   const chase = !!account.institution && account.institution.toLowerCase().includes('chase');
   return `<summary class="bankcard">
                 <span class="bankcard__brand" aria-hidden="true">${
                   chase && mark
-                    ? `<svg viewBox="0 0 24 24"><path d="${mark.path}" /></svg><b>CHASE</b>`
+                    ? `<b>CHASE</b><svg viewBox="0 0 24 24"><path d="${mark.path}" /></svg>`
                     : `<b>${esc((account.institution ?? account.name).toUpperCase())}</b>`
                 }</span>
-                <span class="bankcard__corner${trustworthy ? '' : ' bankcard__corner--stale'}">${
-                  trustworthy ? 'Debit' : 'May be stale'
-                }</span>
-                <span class="bankcard__chip" aria-hidden="true"></span>
                 <span class="bankcard__label">Balance</span>
                 <span class="bankcard__figure num">${
                   balance === null ? '—' : moneyParts(balance)
                 }</span>
                 <span class="bankcard__name">${esc(account.name)}</span>
-                <span class="bankcard__network" aria-hidden="true">VISA</span>
+                <span class="bankcard__network" aria-hidden="true"><i>Debit</i><b>VISA</b></span>
               </summary>`;
 }
 
@@ -836,7 +833,7 @@ function wallet(data: DashboardViewData, trustworthy: boolean): string {
   const balance = account.available_cents ?? account.ledger_cents;
   return `      <section class="wallet">
         <details class="wallet__d">
-          ${bankCardHead(account, balance, trustworthy)}
+          ${bankCardHead(account, balance)}
           <div class="wallet__body">
             ${data.accounts.map((a) => balanceDetail(a, trustworthy)).join('\n')}
           </div>

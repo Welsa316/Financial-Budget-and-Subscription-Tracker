@@ -2124,19 +2124,19 @@ body:has(.offline-banner) .topbar {
 }
 
 /* ---------- The Chase card ----------
-   Drawn as the card itself: the blue field, octagon and wordmark, a chip, the
-   network mark. Real proportions (85.6 x 54mm). It is the one deliberately
-   coloured object on a monochrome page, because it depicts a real thing whose
-   colour is part of what it is. White on this blue is 6.2:1. Nothing printed
-   on it is invented - the balance sits where the card number would. */
+   The newer Chase debit: deep navy, wordmark and octagon top-left, the
+   Debit/VISA stack bottom-right. Real proportions (85.6 x 54mm), no chip.
+   The one deliberately coloured object on a monochrome page, because a
+   depiction of a real thing gets the thing's own colour. White on this navy
+   is 13:1; nothing printed on it is invented. */
 
 .bankcard {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   grid-template-areas:
-    'brand corner'
-    'chip chip'
+    'brand brand'
+    '. .'
     'label label'
     'figure figure'
     'name network';
@@ -2144,7 +2144,7 @@ body:has(.offline-banner) .topbar {
   aspect-ratio: 1.586;
   padding: 1.15rem 1.3rem 1.05rem;
   border-radius: 14px;
-  background: #1263a8;
+  background: #0b3465;
   color: #fff;
   cursor: pointer;
   list-style: none;
@@ -2155,70 +2155,26 @@ body:has(.offline-banner) .topbar {
 }
 
 details > .bankcard:hover {
-  filter: brightness(1.07);
+  filter: brightness(1.12);
 }
 
 .bankcard__brand {
   grid-area: brand;
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.5rem;
 }
 
 .bankcard__brand svg {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   fill: #fff;
 }
 
 .bankcard__brand b {
   font-size: 1rem;
   font-weight: 800;
-  letter-spacing: 0.1em;
-}
-
-.bankcard__corner {
-  grid-area: corner;
-  justify-self: end;
-  font-size: 0.6875rem;
-  font-weight: 500;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.bankcard__corner--stale {
-  color: #ffd9a0;
-}
-
-/* The chip is a depiction, not data: a gold contact plate with its split
-   lines, the same way the blue is the card's colour. */
-.bankcard__chip {
-  grid-area: chip;
-  align-self: center;
-  width: 2.15rem;
-  height: 1.55rem;
-  border-radius: 5px;
-  background: linear-gradient(135deg, #ecd08a, #c9a24f);
-  position: relative;
-}
-
-.bankcard__chip::before {
-  content: '';
-  position: absolute;
-  inset: 3px;
-  border: 1px solid rgba(40, 30, 5, 0.35);
-  border-radius: 3px;
-}
-
-.bankcard__chip::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 1px;
-  background: rgba(40, 30, 5, 0.35);
+  letter-spacing: 0.12em;
 }
 
 .bankcard__label {
@@ -2227,7 +2183,6 @@ details > .bankcard:hover {
   font-weight: 500;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  /* 0.65 composites to ~3.6:1 on this blue; 0.85 clears 4.5:1 at 11px. */
   color: rgba(255, 255, 255, 0.85);
 }
 
@@ -2259,6 +2214,20 @@ details > .bankcard:hover {
   grid-area: network;
   align-self: end;
   justify-self: end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+}
+
+.bankcard__network i {
+  font-size: 0.7rem;
+  font-style: italic;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.bankcard__network b {
   font-size: 1.05rem;
   font-weight: 900;
   font-style: italic;
