@@ -52,6 +52,29 @@ function int(key: string, fallback: number): number {
 const nodeEnv = str('NODE_ENV', 'development');
 const isProduction = nodeEnv === 'production';
 
+/**
+ * time.ts builds its Intl formatters at module evaluation, so an unknown zone
+ * throws a RangeError while the import graph is still loading — before boot()
+ * can run validateConfig. The deploy crash-looped with a stack trace and the
+ * config reporter, which exists precisely to name this kind of mistake, never
+ * got a turn. Resolve it here instead: fall back to something valid so the
+ * formatters construct, and let validateConfig refuse the boot with a message
+ * that says which variable is wrong.
+ */
+const TIMEZONE_FALLBACK = 'America/Chicago';
+const requestedTimezone = str('APP_TIMEZONE', TIMEZONE_FALLBACK);
+
+function isValidTimezone(name: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: name });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const timezoneValid = isValidTimezone(requestedTimezone);
+
 export const config = {
   nodeEnv,
   isProduction,
@@ -61,7 +84,7 @@ export const config = {
   dbPath: str('DB_PATH', resolve(ROOT, 'data', 'finance.db')),
 
   /** All week/day boundaries and cron times use this zone, not the server's. */
-  timezone: str('APP_TIMEZONE', 'America/Chicago'),
+  timezone: timezoneValid ? requestedTimezone : TIMEZONE_FALLBACK,
 
   auth: {
     passwordHash: str('APP_PASSWORD_HASH'),
@@ -122,6 +145,17 @@ export function validateConfig(): ConfigProblem[] {
       key: 'DB_PATH',
       message:
         'Not set. In production the database MUST live on a mounted volume, or every deploy wipes all history. Set DB_PATH=/data/finance.db and attach a volume at /data.',
+      fatal: true,
+    });
+  }
+
+  // Fatal rather than a warning: every pay-week boundary, "this month" and cron
+  // fire time is evaluated in this zone, so quietly running on a different one
+  // moves the Friday paycheck without saying so.
+  if (!timezoneValid) {
+    problems.push({
+      key: 'APP_TIMEZONE',
+      message: `"${requestedTimezone}" is not a zone this system knows. Use an IANA name such as ${TIMEZONE_FALLBACK}.`,
       fatal: true,
     });
   }

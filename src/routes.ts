@@ -231,7 +231,7 @@ router.post('/api/import', (req: Request, res: Response) => {
   // Same date and amount, then description similarity — a statement and the API
   // word the same charge differently, so exact-key matching misses duplicates.
   const sameDateAndAmount = db.prepare(
-    'SELECT normalized_description FROM transactions WHERE date = ? AND amount_cents = ?',
+    'SELECT id, normalized_description FROM transactions WHERE date = ? AND amount_cents = ?',
   );
   const insert = db.prepare(
     `INSERT INTO transactions (
@@ -244,6 +244,22 @@ router.post('/api/import', (req: Request, res: Response) => {
   let inserted = 0;
   let duplicates = 0;
   let invalid = 0;
+
+  /**
+   * A stored row may stand in for at most one statement row.
+   *
+   * Matching is by content, so two genuinely identical charges on one day — two
+   * $5 coffees at the same counter — are indistinguishable from a re-import of
+   * one charge. The only honest way to tell them apart is to count: the
+   * statement lists the charge twice, the database holds it once, so one of
+   * them is new. Without this every repeated charge collapsed into a single row
+   * and that week's spending came out low.
+   *
+   * Ids of rows inserted by this batch go in too, or the second coffee would
+   * match the first one moments after it landed.
+   */
+  const claimed = new Set<string>();
+  const occurrences = new Map<string, number>();
 
   const load = db.transaction((items: IncomingStatementRow[]) => {
     for (const item of items) {
@@ -259,27 +275,47 @@ router.post('/api/import', (req: Request, res: Response) => {
       // Recomputed server-side rather than trusting the client's key.
       const key = dedupeKey(date, amountCents, description);
       const normalized = normalizeDescription(description);
-      const clash = (
-        sameDateAndAmount.all(date, amountCents) as Array<{ normalized_description: string }>
-      ).some((row) => descriptionsSimilar(normalized, row.normalized_description));
-      if (clash) {
+
+      const match = (
+        sameDateAndAmount.all(date, amountCents) as Array<{
+          id: string;
+          normalized_description: string;
+        }>
+      ).find(
+        (row) =>
+          !claimed.has(row.id) && descriptionsSimilar(normalized, row.normalized_description),
+      );
+      if (match) {
+        claimed.add(match.id);
         duplicates += 1;
         continue;
       }
 
-      insert.run(
-        importId(key),
+      const occurrence = occurrences.get(key) ?? 0;
+      occurrences.set(key, occurrence + 1);
+      const id = importId(key, occurrence);
+
+      const result = insert.run(
+        id,
         accountId,
         date,
         amountCents,
         description,
-        normalizeDescription(description),
+        normalized,
         key,
         JSON.stringify({ source: 'chase-statement', description }),
         now,
         now,
       );
-      inserted += 1;
+
+      // DO NOTHING on conflict means a clash is not an insert; counting it as
+      // one would report more imported than actually landed.
+      if (result.changes > 0) {
+        claimed.add(id);
+        inserted += 1;
+      } else {
+        duplicates += 1;
+      }
     }
   });
   load(rows as IncomingStatementRow[]);

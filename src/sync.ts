@@ -33,6 +33,16 @@ const BACKFILL_WINDOWS = 4;
 const INCREMENTAL_DAYS = 45;
 /** How far a pending charge may move when it settles. */
 const SETTLE_WINDOW_DAYS = 5;
+/**
+ * How much more than its authorisation a charge may settle for and still be the
+ * same charge. A restaurant authorises the bill and settles with the tip added,
+ * so requiring an exact amount left the pending row in place beside the posted
+ * one and counted the meal twice for the fourteen days until the stale sweep
+ * removed it.
+ */
+const SETTLE_MAX_GROWTH = 2;
+/** A pending charge SimpleFIN has stopped reporting for this long was dropped. */
+const STALE_PENDING_DAYS = 14;
 
 const DAY_SECONDS = 86_400;
 
@@ -318,16 +328,35 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
         for (const pending of pendings) {
           if (returnedIds.has(pending.id)) continue; // SimpleFIN still reports it.
 
-          const match = postedRows.find((posted) => {
-            const postedId = rowId(account.id, posted.id);
-            if (claimed.has(postedId)) return false;
-            if (toCents(posted.amount) !== pending.amount_cents) return false;
+          const sameMerchant = postedRows.filter((posted) => {
+            if (claimed.has(rowId(account.id, posted.id))) return false;
             if (daysApart(transactionDate(posted), pending.date) > SETTLE_WINDOW_DAYS) return false;
             return descriptionsSimilar(
               normalizeDescription(posted.description || posted.payee || ''),
               pending.normalized_description,
             );
           });
+
+          // Exact amount first: unambiguous even when the merchant billed twice.
+          let match = sameMerchant.find(
+            (posted) => toCents(posted.amount) === pending.amount_cents,
+          );
+
+          // Then the tip / pre-authorisation case, but only when there is a
+          // single candidate. With two charges from the same merchant in the
+          // window there is no way to tell which one settled, and merging the
+          // wrong pair destroys a real charge — worse than counting one twice
+          // for a fortnight. Ambiguity is left to the stale sweep below.
+          if (!match && sameMerchant.length === 1) {
+            const only = sameMerchant[0]!;
+            const settled = toCents(only.amount);
+            const authorised = pending.amount_cents;
+            const sameDirection = settled < 0 === authorised < 0;
+            const grew =
+              Math.abs(settled) >= Math.abs(authorised) &&
+              Math.abs(settled) <= Math.abs(authorised) * SETTLE_MAX_GROWTH;
+            if (sameDirection && grew) match = only;
+          }
 
           if (match) {
             const matchId = rowId(account.id, match.id);
@@ -339,7 +368,11 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
             moveOverride.run(matchId, pending.id);
             deleteRow.run(pending.id);
             pendingSettled += 1;
-          } else if (daysApart(now.slice(0, 10), pending.date) > 14) {
+            // toYmd, not now.slice(0,10): `now` is a UTC instant, and after
+            // 19:00 in a US zone its date is already tomorrow. Comparing that
+            // against a zone-local transaction date made the evening cron
+            // delete pending charges a full day early.
+          } else if (daysApart(toYmd(), pending.date) > STALE_PENDING_DAYS) {
             // Dropped authorisation. Leaving it would inflate spending forever.
             db.prepare('DELETE FROM overrides WHERE transaction_id = ?').run(pending.id);
             deleteRow.run(pending.id);

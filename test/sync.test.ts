@@ -326,6 +326,67 @@ describe('sync: pending settles', () => {
     assert.equal(count, 2, 'both charges must survive; neither may be swallowed');
   });
 
+  /**
+   * A restaurant authorises the bill and settles with the tip added. Requiring
+   * an exact amount left the authorisation sitting beside the settled charge,
+   * counting the meal twice in that week's spending for the fortnight until the
+   * stale sweep removed it.
+   */
+  it('settles a charge that grew by a tip', async () => {
+    mock.state.transactions = [
+      { id: 'auth', account_id: 'acc_1', amount: '-50.00', posted: 0, transacted_at: agoSec(3), description: 'COMPERE LAPIN', pending: true },
+    ];
+    await runSync('manual');
+
+    mock.state.transactions = [
+      { id: 'settled', account_id: 'acc_1', amount: '-58.00', posted: agoSec(1), description: 'COMPERE LAPIN' },
+    ];
+    const result = await runSync('manual');
+
+    const rows = getDb()
+      .prepare('SELECT id, amount_cents, settled_from FROM transactions')
+      .all() as Array<{ id: string; amount_cents: number; settled_from: string | null }>;
+    assert.equal(rows.length, 1, 'the authorisation must not survive beside the settled charge');
+    assert.equal(rows[0]!.amount_cents, -5800, 'the settled amount is the real one');
+    assert.ok(rows[0]!.settled_from?.endsWith('auth'));
+    assert.equal(result.pendingSettled, 1);
+  });
+
+  it('leaves an ambiguous pair alone rather than merging the wrong pair', async () => {
+    // Two visits to the same merchant, neither settling for its exact
+    // authorisation. Guessing risks destroying a real charge, which is worse
+    // than counting one twice until the stale sweep.
+    mock.state.transactions = [
+      { id: 'a1', account_id: 'acc_1', amount: '-20.00', posted: 0, transacted_at: agoSec(3), description: 'CAFE DU MONDE', pending: true },
+      { id: 'a2', account_id: 'acc_1', amount: '-30.00', posted: 0, transacted_at: agoSec(3), description: 'CAFE DU MONDE', pending: true },
+    ];
+    await runSync('manual');
+
+    mock.state.transactions = [
+      { id: 'b1', account_id: 'acc_1', amount: '-24.00', posted: agoSec(1), description: 'CAFE DU MONDE' },
+      { id: 'b2', account_id: 'acc_1', amount: '-36.00', posted: agoSec(1), description: 'CAFE DU MONDE' },
+    ];
+    await runSync('manual');
+
+    const count = (getDb().prepare('SELECT COUNT(*) AS n FROM transactions').get() as { n: number }).n;
+    assert.equal(count, 4, 'nothing may be silently merged away');
+  });
+
+  it('does not settle a charge against a wildly different amount', async () => {
+    mock.state.transactions = [
+      { id: 'hold', account_id: 'acc_1', amount: '-1.00', posted: 0, transacted_at: agoSec(2), description: 'SHELL OIL 57443', pending: true },
+    ];
+    await runSync('manual');
+
+    mock.state.transactions = [
+      { id: 'big', account_id: 'acc_1', amount: '-500.00', posted: agoSec(1), description: 'SHELL OIL 57443' },
+    ];
+    await runSync('manual');
+
+    const count = (getDb().prepare('SELECT COUNT(*) AS n FROM transactions').get() as { n: number }).n;
+    assert.equal(count, 2, 'a 500x jump is not the same charge settling');
+  });
+
   it('drops a pending charge the bank abandoned after 14 days', async () => {
     mock.state.transactions = [
       { id: 'ghost', account_id: 'acc_1', amount: '-15.00', posted: 0, transacted_at: agoSec(20), description: 'CANCELLED HOLD', pending: true },

@@ -165,10 +165,15 @@ export function parseStatement(text: string): ParsedStatement {
  * Deterministic id for an imported row, so re-importing the same statement
  * updates in place instead of duplicating.
  */
-export function importId(key: string): string {
+export function importId(key: string, occurrence = 0): string {
   let hash = 0;
   for (let index = 0; index < key.length; index++) {
     hash = (hash * 31 + key.charCodeAt(index)) >>> 0;
   }
-  return `imp_${hash.toString(36)}_${normalizeDescription(key).slice(0, 24).replace(/\s/g, '-')}`;
+  const base = `imp_${hash.toString(36)}_${normalizeDescription(key).slice(0, 24).replace(/\s/g, '-')}`;
+  // Two identical charges on the same day are a real thing — two $5 coffees at
+  // the same counter. They share a key, so without a suffix the second one
+  // collided with the first on the primary key and was silently dropped,
+  // under-counting that week's spending.
+  return occurrence === 0 ? base : `${base}~${occurrence + 1}`;
 }
