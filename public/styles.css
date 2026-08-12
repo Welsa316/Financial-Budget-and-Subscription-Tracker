@@ -1,33 +1,50 @@
-/* Finance dashboard — light only, warm neutral, mobile-first single column. */
+/* Finance dashboard — dark only, true black, mobile-first single column. */
 
 :root {
-  --bg: #f4f1ea;
-  --surface: #fffdf8;
-  --surface-sunk: #efebe1;
-  --ink: #1e1b16;
-  --ink-2: #5b544a;
-  /* Muted text still has to clear WCAG AA (4.5:1) on both --surface and --bg;
-     anything lighter than this fails on the warm background. */
-  --ink-3: #736a5e;
-  --line: #e4ddd0;
-  --line-strong: #d2c8b6;
-  /* The boundary of anything you can press or type into. WCAG 1.4.11 wants 3:1
-     for that, and --line-strong manages 1.63:1 on --surface — chips and inputs
-     had no visible edge at all in bright light. This clears 3.85:1 on --surface
-     and 3.47:1 on --bg. Decorative rules keep --line-strong. */
-  --line-control: #8b7f6e;
+  color-scheme: dark;
 
-  --positive: #17703f;
-  --positive-soft: #e6f0e7;
-  --negative: #a8321d;
-  --negative-soft: #f8e9e4;
-  --essential: #8a5511;
-  --essential-soft: #f6ecdc;
-  --warn-soft: #fdf3e0;
+  /* Black, not charcoal. The point of a true black ground is that everything
+     placed on it is the only thing with any brightness, so contrast does the
+     work that borders and shadows do on a light page — and on an OLED phone
+     the background is genuinely off. Surfaces lift in small steps rather than
+     using shadow, which is invisible against black anyway. */
+  --bg: #000000;
+  --surface: #0e0e0e;
+  --surface-sunk: #1a1a1a;
+
+  /* Not pure white: 21:1 on black haloes on a phone at night. */
+  --ink: #f4f4f2;
+  --ink-2: #b4b4b0;
+  /* Muted text still has to clear WCAG AA (4.5:1) on --surface. Measured at
+     5.77:1; anything darker than this fails. */
+  --ink-3: #8a8a86;
+
+  --line: #2b2b2b;
+  --line-strong: #333330;
+  /* The boundary of anything you can press or type into: WCAG 1.4.11 wants
+     3:1 for that. 4.1:1 on --surface. */
+  --line-control: #5c5c58;
+
+  /* Amber rather than the cyan-and-mint every generated fintech screen uses.
+     9.5:1 on --surface, and it is the one hue on the page, so it can mean
+     "this is the accent" without competing with the money colours. */
+  --accent: #f5a524;
+  --accent-soft: #241a08;
+  --accent-ink: #1a1205;
+
+  /* Reserved strictly for direction of money and for trouble, so a page of
+     ordinary spending does not come out red. */
+  --positive: #4ade80;
+  --positive-soft: #0f2417;
+  --negative: #f87171;
+  --negative-soft: #2a1214;
+  --warn-soft: #1f1708;
 
   --radius: 14px;
   --radius-sm: 9px;
-  --shadow: 0 1px 2px rgba(30, 27, 22, 0.04), 0 4px 14px rgba(30, 27, 22, 0.05);
+  /* Kept for the few places that lift off the page; against black a shadow
+     reads as a slightly darker black, so borders carry the separation. */
+  --shadow: none;
 
   --step-0: 1.0625rem; /* 17px body */
   --step-1: 1.25rem;
@@ -174,7 +191,7 @@ a {
 
 .card--warn {
   background: var(--warn-soft);
-  border-color: #e8d5ac;
+  border-color: #4a3a12;
 }
 
 .card__title {
@@ -218,7 +235,7 @@ a {
 
 .card--alert {
   background: var(--negative-soft);
-  border-color: #edc8bd;
+  border-color: #52201f;
 }
 
 .card--alert .card__title {
@@ -227,27 +244,7 @@ a {
 
 /* ---------- Headline figures ---------- */
 
-.figure {
-  font-size: var(--step-3);
-  font-weight: 660;
-  letter-spacing: -0.03em;
-  line-height: 1.05;
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: 'tnum' 1;
-  margin-bottom: 0.35rem;
-}
-
 /* Dimmed whenever the number is not known to be current. */
-.figure--stale {
-  color: var(--ink-3);
-}
-
-.figure__note {
-  font-size: 0.875rem;
-  color: var(--ink-2);
-  margin-bottom: 0.6rem;
-}
-
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -260,78 +257,42 @@ a {
 /* ---------- Hero: the Friday paycheck ---------- */
 
 /* A darker band so the number the page exists for owns the top of the screen. */
-.card--hero {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: var(--surface);
-}
-
-.card--hero .card__title {
-  color: rgba(255, 253, 248, 0.62);
-}
-
-.hero__top {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.hero__when {
-  font-size: 0.8125rem;
-  color: rgba(255, 253, 248, 0.62);
-  white-space: nowrap;
-}
-
-.figure--xl {
-  font-size: clamp(2.75rem, 13vw, 3.5rem);
-  margin: 0.2rem 0 0.5rem;
-}
-
-.figure--positive {
-  color: #7ee2a8;
-}
-
-.figure--negative {
-  color: #ff9d8a;
-}
-
 .hero__maths {
   font-size: 0.9375rem;
-  color: rgba(255, 253, 248, 0.86);
+  color: var(--ink-2);
   line-height: 1.5;
 }
 
 .hero__note {
   margin-top: 0.7rem;
   padding: 0.55rem 0.7rem;
-  background: rgba(255, 253, 248, 0.09);
+  background: var(--surface-sunk);
   border-radius: var(--radius-sm);
   font-size: 0.875rem;
-  color: rgba(255, 253, 248, 0.86);
+  color: var(--ink-2);
 }
 
 .hero__note--warn {
-  background: rgba(255, 157, 138, 0.16);
-  color: #ffcabd;
+  background: var(--negative-soft);
+  color: var(--negative);
 }
 
 .hero__week {
   margin-top: 0.85rem;
   font-size: 0.8125rem;
-  color: rgba(255, 253, 248, 0.55);
+  color: var(--ink-3);
 }
 
 .disclosure {
   margin-top: 0.9rem;
-  border-top: 1px solid rgba(255, 253, 248, 0.15);
+  border-top: 1px solid var(--line);
   padding-top: 0.7rem;
 }
 
 .disclosure > summary {
   cursor: pointer;
   font-size: 0.875rem;
-  color: rgba(255, 253, 248, 0.75);
+  color: var(--ink-2);
   list-style: none;
   display: flex;
   align-items: center;
@@ -356,21 +317,9 @@ a {
    specificity with the generic `.table thead th` defined later in this file,
    and loses on source order — which silently left these headers at --ink-3
    (3.23:1) on the dark ground. */
-.card--hero .table--weeks {
-  color: rgba(255, 253, 248, 0.88);
-}
-
 .card--hero .table--weeks th,
 .card--hero .table--weeks td {
-  border-bottom-color: rgba(255, 253, 248, 0.16);
-}
-
-.card--hero .table--weeks thead th {
-  color: rgba(255, 253, 248, 0.78);
-}
-
-.card--hero .table--weeks .is-negative {
-  color: #ff9d8a;
+  border-bottom-color: var(--line);
 }
 
 /* ---------- "Already spent" breakdown ---------- */
@@ -380,7 +329,7 @@ a {
 }
 
 .spent__row + .spent__row {
-  border-top: 1px solid rgba(255, 253, 248, 0.12);
+  border-top: 1px solid var(--line);
 }
 
 /* Grid, not flex: a long merchant name wraps onto its own line while the amount
@@ -404,7 +353,7 @@ a {
 .spent__label {
   grid-column: 1;
   font-size: 0.875rem;
-  color: rgba(255, 253, 248, 0.92);
+  color: var(--ink);
   overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -416,7 +365,7 @@ a {
 .spent__meta {
   grid-column: 1;
   font-size: 0.75rem;
-  color: rgba(255, 253, 248, 0.62);
+  color: var(--ink-3);
 }
 
 /* Explicit row: without it auto-placement follows the cursor past the meta row
@@ -425,7 +374,7 @@ a {
   grid-column: 2;
   grid-row: 1;
   font-size: 0.9375rem;
-  color: rgba(255, 253, 248, 0.92);
+  color: var(--ink);
 }
 
 a.spent__link:hover .spent__label {
@@ -438,42 +387,7 @@ a.spent__link:hover .spent__label {
 
 /* The global focus ring is 2px solid var(--ink) — and this card's background IS
    var(--ink), so inside the hero it has to invert or it cannot be seen at all. */
-.card--hero a:focus-visible {
-  outline-color: var(--surface);
-}
-
 /* ---------- Next up ---------- */
-
-.next {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.next__main {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  min-width: 0;
-}
-
-.next__name {
-  font-size: var(--step-1);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.next__when {
-  font-size: 0.875rem;
-  color: var(--ink-2);
-}
-
-.next__amount {
-  font-size: var(--step-1);
-  font-weight: 620;
-  white-space: nowrap;
-}
 
 /* ---------- Tables ---------- */
 
@@ -565,7 +479,7 @@ a.spent__link:hover .spent__label {
 
 /* Essentials get a marker because they are the ones that get missed. */
 .commit--essential .commit__name {
-  color: var(--essential);
+  color: var(--accent);
 }
 
 .commit__amount {
@@ -599,7 +513,7 @@ a.spent__link:hover .spent__label {
 }
 
 .subhead--essential {
-  color: var(--essential);
+  color: var(--accent);
 }
 
 .subhead__amount {
@@ -618,7 +532,7 @@ a.spent__link:hover .spent__label {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--essential);
+  background: var(--accent);
   margin-right: 0.45rem;
   vertical-align: middle;
 }
@@ -663,11 +577,6 @@ a.spent__link:hover .spent__label {
 
 /* ---------- Spending split ---------- */
 
-.figure--sm {
-  font-size: 2rem;
-  margin-bottom: 0.75rem;
-}
-
 .split {
   display: flex;
   height: 12px;
@@ -681,7 +590,7 @@ a.spent__link:hover .spent__label {
 }
 
 .split__disc {
-  background: var(--essential);
+  background: var(--accent);
 }
 
 .split__legend {
@@ -711,7 +620,7 @@ a.spent__link:hover .spent__label {
 }
 
 .swatch--disc {
-  background: var(--essential);
+  background: var(--accent);
 }
 
 .subhead {
@@ -772,23 +681,9 @@ a.spent__link:hover .spent__label {
 
 /* ---------- Needs a look ---------- */
 
-.card--review {
-  border-color: var(--essential);
-  background: var(--essential-soft);
-}
-
-.card--review .card__title,
-.card--review .card__total {
-  color: var(--essential);
-}
-
-.card--review .txn {
-  border-bottom-color: rgba(138, 85, 17, 0.22);
-}
-
 .tag--review {
-  background: var(--essential);
-  color: #fffdf8;
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 /* ---------- Sorting the transaction list ---------- */
@@ -1031,8 +926,8 @@ a.spent__link:hover .spent__label {
 }
 
 .tag--pending {
-  background: var(--essential-soft);
-  color: var(--essential);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 /* Every classification is visible on the row, so a wrong guess is obvious. */
@@ -1042,8 +937,8 @@ a.spent__link:hover .spent__label {
 }
 
 .tag--discretionary {
-  background: #eceef1;
-  color: #4a5560;
+  background: var(--surface-sunk);
+  color: var(--ink-2);
 }
 
 .tag--income {
@@ -1163,7 +1058,7 @@ a.spent__link:hover .spent__label {
   flex-direction: column;
   gap: 0.15rem;
   padding: 0.55rem 0;
-  border-bottom: 1px solid #ecdcbd;
+  border-bottom: 1px solid var(--line);
 }
 
 .issues li:last-child {
@@ -1211,15 +1106,17 @@ a.spent__link:hover .spent__label {
   width: 100%;
 }
 
+/* The accent, not --ink. Inverted, "dark background with off-white text"
+   becomes white on white. */
 .btn--primary {
-  --btn-bg: var(--ink);
-  --btn-fg: #fffdf8;
-  --btn-border: var(--ink);
+  --btn-bg: var(--accent);
+  --btn-fg: var(--accent-ink);
+  --btn-border: var(--accent);
 }
 
 .btn--primary:hover:not(:disabled) {
-  --btn-bg: #332e26;
-  --btn-border: #332e26;
+  --btn-bg: #ffb43d;
+  --btn-border: #ffb43d;
 }
 
 .btn:not(:disabled):hover {
@@ -1340,7 +1237,7 @@ select:focus-visible {
   background: var(--surface);
   border-color: var(--ink);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(30, 27, 22, 0.09);
+  box-shadow: 0 0 0 3px rgba(245, 165, 36, 0.22);
 }
 
 .auth__form .btn {
@@ -1382,8 +1279,8 @@ body:has(.offline-banner) .topbar {
   top: 0;
   z-index: 30;
   padding: 0.6rem var(--pad);
-  background: var(--essential);
-  color: #fffdf8;
+  background: var(--accent);
+  color: var(--accent-ink);
   font-size: 0.875rem;
   font-weight: 560;
   text-align: center;
@@ -1407,13 +1304,6 @@ body:has(.offline-banner) .topbar {
 
 /* The figure beside a card title. Distinct from .hero__when, which is tuned
    for the dark hero card — reusing that here put near-white text on cream. */
-.card__total {
-  font-size: 0.9375rem;
-  font-weight: 600;
-  color: var(--ink-2);
-  white-space: nowrap;
-}
-
 /* ---------- Due in the next 30 days ---------- */
 
 .due {
@@ -1628,14 +1518,14 @@ body:has(.offline-banner) .topbar {
   width: 32px;
   height: 32px;
   border-radius: 9px;
-  background: var(--essential-soft);
+  background: var(--accent-soft);
 }
 
 .row__icon svg {
   width: 19px;
   height: 19px;
   fill: none;
-  stroke: var(--essential);
+  stroke: var(--accent);
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -1661,7 +1551,7 @@ body:has(.offline-banner) .topbar {
 }
 
 .row__value--warn {
-  color: var(--essential);
+  color: var(--accent);
 }
 
 /* The chevron is the affordance the whole pattern rests on, so it is drawn
