@@ -104,8 +104,8 @@
       "match": "apple.com",
       "amountCents": 99,
       "cadence": "monthly",
-      "variableAmount": true,
-      "_comment": "Recurring 0.99 found in the statements but never mentioned - added so it stops landing in discretionary. Delete this entry if it is not yours."
+      "toleranceCents": 100,
+      "_comment": "Recurring 0.99 found in the statements but never mentioned - added so it stops landing in discretionary. Delete this entry if it is not yours. Amount-checked on purpose: Apple.Com/Bill also carries App Store purchases and hardware, and with variableAmount a $1,299 MacBook would have read as this $0.99 subscription and vanished out of spending."
     }
   ],
   "essentials": [

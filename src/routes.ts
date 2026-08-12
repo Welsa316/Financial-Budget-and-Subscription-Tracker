@@ -29,10 +29,27 @@ export const router = Router();
 /** A sync older than this means the twice-daily schedule missed a run. */
 const STALE_AFTER_MS = 14 * 60 * 60 * 1000;
 
-function safeNext(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  if (!value.startsWith('/') || value.startsWith('//')) return undefined;
-  return value;
+/**
+ * Where to send the browser after a successful login. Must stay on this site.
+ *
+ * Checking the string by hand is not enough: browsers normalise "\" to "/", so
+ * "/\evil.com" passes a startsWith("/") + !startsWith("//") test and then
+ * redirects off-site as a protocol-relative URL. Parsing with the same WHATWG
+ * rules the browser uses and comparing origins closes that whole class —
+ * backslashes, encoded control characters and absolute URLs all fail it.
+ */
+const REDIRECT_BASE = 'http://internal.invalid';
+
+export function safeNext(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !value.startsWith('/')) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(value, REDIRECT_BASE);
+  } catch {
+    return undefined;
+  }
+  if (parsed.origin !== REDIRECT_BASE) return undefined;
+  return `${parsed.pathname}${parsed.search}${parsed.hash}`;
 }
 
 router.get('/healthz', (_req: Request, res: Response) => {

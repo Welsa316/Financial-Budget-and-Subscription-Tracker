@@ -146,6 +146,62 @@ describe('allowance maths', () => {
   });
 });
 
+/**
+ * "Already spent" moves the headline number, so it has to be checkable against
+ * the account. A total with nothing behind it is exactly how wrong
+ * categorisation went unnoticed for seven months.
+ */
+describe('what "already spent" is made of', () => {
+  it('lists every charge in the total and nothing else', () => {
+    const txns = [
+      make('DOORDASH INC PAYMENT', '400.00', '2026-08-08'),
+      make('CAFE DU MONDE', '-18.40', '2026-08-09'),
+      make('TARGET STORE 0991', '-52.10', '2026-08-10'),
+      make('NETFLIX.COM', '-19.74', '2026-08-10'), // a bill, not fun money
+      make('CAFE DU MONDE', '-9.00', '2026-08-06'), // previous week
+    ];
+    const summary = summariseWeek(WEEK, txns, resolveRefunds(txns, rules), rules);
+
+    assert.deepEqual(
+      summary.spentLines.map((line) => line.amountCents),
+      [5210, 1840],
+      'largest first, bills and other weeks excluded',
+    );
+    assert.equal(
+      summary.spentLines.reduce((sum, line) => sum + line.amountCents - line.refundedCents, 0),
+      summary.spentNetCents,
+      'the rows must add up to the number they explain',
+    );
+  });
+
+  it('shows the refund against the charge it reverses', () => {
+    const txns = [
+      make('TARGET STORE 0991', '-50.00', '2026-08-09', { merchant: 'Target' }),
+      make('PURCHASE RETURN TARGET 0991', '30.00', '2026-08-11', { merchant: 'Target' }),
+    ];
+    const summary = summariseWeek(WEEK, txns, resolveRefunds(txns, rules), rules);
+
+    assert.equal(summary.spentLines.length, 1, 'the credit is not a row of its own');
+    assert.equal(summary.spentLines[0]!.amountCents, 5000);
+    assert.equal(summary.spentLines[0]!.refundedCents, 3000);
+    assert.equal(summary.spentNetCents, 2000);
+  });
+
+  it('marks a pending charge so a number that can still move says so', () => {
+    const txns = [make('CAFE DU MONDE', '-18.40', '2026-08-12', { status: 'pending' })];
+    const summary = summariseWeek(WEEK, txns, resolveRefunds(txns, rules), rules);
+
+    assert.equal(summary.spentLines.length, 1);
+    assert.equal(summary.spentLines[0]!.pending, true);
+  });
+
+  it('is empty when nothing was spent', () => {
+    const txns = [make('DOORDASH INC PAYMENT', '400.00', '2026-08-08')];
+    const summary = summariseWeek(WEEK, txns, resolveRefunds(txns, rules), rules);
+    assert.deepEqual(summary.spentLines, []);
+  });
+});
+
 describe('refunds', () => {
   it('nets a same-week return against that week, not as income', () => {
     // The original bug: buy $50, return it, allowance must not stay $50 lighter.

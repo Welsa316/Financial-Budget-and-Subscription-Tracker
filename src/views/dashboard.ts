@@ -3,7 +3,7 @@ import { formatStamp, formatDayMonth, relativeDays } from '../time.js';
 import type { Classified } from '../classify.js';
 import type { CommitmentStatus } from '../commitments.js';
 import type { DashboardModel, SpendingSlice } from '../dashboard.js';
-import type { WeekSummary } from '../budget.js';
+import type { SpentLine, WeekSummary } from '../budget.js';
 
 export interface AccountRow {
   id: string;
@@ -24,8 +24,56 @@ export interface DashboardViewData extends DashboardModel {
 
 // --- 1. Friday paycheck ---------------------------------------------------
 
+/**
+ * The charges behind "already spent".
+ *
+ * The figure on its own is not auditable: one wrongly classified charge moves
+ * the Friday paycheck with nothing on screen to say which. Rows link into
+ * Recent transactions so a wrong one can be reclassified from here — but only
+ * when that row is actually rendered, since Recent is capped. An unlinked row
+ * still shows, because leaving a charge out entirely would defeat the point.
+ */
+function spentLineRow(line: SpentLine, linkable: boolean): string {
+  const net = line.amountCents - line.refundedCents;
+
+  const meta = [formatDayMonth(line.date)];
+  if (line.pending) meta.push('pending');
+  if (line.refundedCents > 0) meta.push(`${moneyAbs(line.refundedCents)} refunded`);
+
+  const inner = `<span class="spent__label">${esc(line.label)}</span>
+                <span class="spent__meta">${esc(meta.join(' · '))}</span>
+                <span class="spent__amount num">${esc(moneyAbs(net))}</span>`;
+
+  return `<li class="spent__row">
+              ${
+                linkable
+                  ? `<a class="spent__link" href="#txn-${esc(encodeURIComponent(line.id))}">${inner}</a>`
+                  : `<span class="spent__link spent__link--plain">${inner}</span>`
+              }
+            </li>`;
+}
+
+function spentBreakdown(current: WeekSummary, visibleIds: Set<string>): string {
+  const lines = current.spentLines;
+  if (lines.length === 0) return '';
+
+  return `        <details class="disclosure">
+          <summary>What the ${esc(moneyAbs(current.spentNetCents))} is made of (${
+            lines.length
+          } charge${lines.length === 1 ? '' : 's'})</summary>
+          <ul class="spent">
+            ${lines.map((line) => spentLineRow(line, visibleIds.has(line.id))).join('\n            ')}
+          </ul>
+          <p class="hero__week">
+            Fun money only — subscriptions, bills and transfers are not in this number.
+            Tap a charge to open it below and change how it was classified.
+          </p>
+        </details>`;
+}
+
 function paycheckSection(data: DashboardViewData): string {
   const { current, daysUntilPayday } = data.paycheck;
+  const visibleIds = new Set(data.recent.map((transaction) => transaction.id));
   const negative = current.allowanceCents < 0;
   const ratePercent = Math.round(current.rate * 100);
   const share = Math.round(current.incomeCents * current.rate);
@@ -88,6 +136,8 @@ function paycheckSection(data: DashboardViewData): string {
         <p class="hero__week">Pay week ${esc(formatDayMonth(current.week.start))} &ndash; ${esc(
           formatDayMonth(current.week.end),
         )}, paid ${esc(formatDayMonth(current.week.payday))}</p>
+
+${spentBreakdown(current, visibleIds)}
 
         <details class="disclosure">
           <summary>Previous 4 weeks</summary>
@@ -323,7 +373,9 @@ function transactionRow(transaction: Classified): string {
     )
     .join('\n                ');
 
-  return `<li class="txn">
+  // The id is the anchor target for /override's redirect and for the "already
+  // spent" drill-down. Without it both scroll nowhere.
+  return `<li class="txn" id="txn-${esc(transaction.id)}">
             <details class="txn__details">
               <summary class="txn__summary">
                 <span class="txn__main">
@@ -361,10 +413,21 @@ function transactionRow(transaction: Classified): string {
 // --- Page -----------------------------------------------------------------
 
 export function dashboardBody(data: DashboardViewData): string {
-  const trustworthy = !data.disconnection && !data.syncStale;
   const syncLabel = data.lastSync?.finished_at
     ? `Synced ${formatStamp(data.lastSync.finished_at)}`
     : 'Never synced';
+
+  /**
+   * SimpleFIN reports a broken bank link in errlist alongside HTTP 200, so a
+   * sync can finish with status 'ok' while one account returned nothing. That
+   * text is stored in sync_log.error next to the ok status and used to render
+   * as an unqualified success — the exact "looks right but isn't" failure this
+   * dashboard exists to prevent.
+   */
+  const syncWarning =
+    data.lastSync?.status === 'ok' && data.lastSync.error ? data.lastSync.error : null;
+
+  const trustworthy = !data.disconnection && !data.syncStale && !syncWarning;
 
   const banners = `${
     data.disconnection
@@ -401,9 +464,25 @@ export function dashboardBody(data: DashboardViewData): string {
     data.syncStale && !data.disconnection && data.bankConnected
       ? `<section class="card card--warn">
         <h2 class="card__title">Sync is overdue</h2>
-        <p class="card__body">The last successful sync was ${esc(
-          syncLabel.replace('Synced ', ''),
-        )}. These numbers may be out of date.</p>
+        <p class="card__body">${
+          data.lastSync?.finished_at
+            ? `The last successful sync was ${esc(formatStamp(data.lastSync.finished_at))}.`
+            : 'This has never synced successfully.'
+        } These numbers may be out of date.</p>
+      </section>`
+      : ''
+  }${
+    // Suppressed when the connection banner is up: a warning that indicates a
+    // broken link already marked the connection disconnected and is shown there.
+    syncWarning && !data.disconnection
+      ? `<section class="card card--warn" role="alert">
+        <h2 class="card__title">Sync finished with warnings</h2>
+        <p class="card__body">
+          The last sync completed, but SimpleFIN reported a problem while doing it.
+          An account may have returned nothing, so the numbers below can be
+          incomplete even though nothing failed outright.
+        </p>
+        <p class="card__hint">${esc(syncWarning)}</p>
       </section>`
       : ''
   }`;
@@ -452,7 +531,9 @@ ${spendingSection(data)}
         ${
           data.lastSync?.status === 'error' && data.lastSync.error
             ? `<p class="card__error">Last sync failed: ${esc(data.lastSync.error)}</p>`
-            : ''
+            : syncWarning
+              ? `<p class="card__error">Last sync reported: ${esc(syncWarning)}</p>`
+              : ''
         }
         <button class="btn btn--primary btn--block" id="sync-now" type="button" ${
           data.bankConnected ? '' : 'disabled'

@@ -368,6 +368,75 @@ a {
   color: #ff9d8a;
 }
 
+/* ---------- "Already spent" breakdown ---------- */
+
+.spent {
+  margin-top: 0.25rem;
+}
+
+.spent__row + .spent__row {
+  border-top: 1px solid rgba(255, 253, 248, 0.12);
+}
+
+/* Grid, not flex: a long merchant name wraps onto its own line while the amount
+   stays pinned in its own column. Under flex the name pushes the amount off the
+   right edge at 375px. */
+.spent__link {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  column-gap: 0.75rem;
+  padding: 0.5rem 0;
+  min-height: 44px;
+  text-decoration: none;
+}
+
+/* Rows imported from a PDF statement have no payee, so the label falls back to
+   the raw Chase description — "Card Purchase 08/11 Apple.Com/Us 800-676-2775 CA
+   Card 7975" runs three lines at 375px and a heavy week turns into a wall.
+   Clamped to two, which still carries the merchant; the full text is one tap
+   away on the row this links to. */
+.spent__label {
+  grid-column: 1;
+  font-size: 0.875rem;
+  color: rgba(255, 253, 248, 0.92);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.spent__meta {
+  grid-column: 1;
+  font-size: 0.75rem;
+  color: rgba(255, 253, 248, 0.62);
+}
+
+/* Explicit row: without it auto-placement follows the cursor past the meta row
+   and drops the amount alongside the date instead of the merchant. */
+.spent__amount {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: 0.9375rem;
+  color: rgba(255, 253, 248, 0.92);
+}
+
+a.spent__link:hover .spent__label {
+  text-decoration: underline;
+}
+
+.spent__link--plain {
+  cursor: default;
+}
+
+/* The global focus ring is 2px solid var(--ink) — and this card's background IS
+   var(--ink), so inside the hero it has to invert or it cannot be seen at all. */
+.card--hero a:focus-visible {
+  outline-color: var(--surface);
+}
+
 /* ---------- Next up ---------- */
 
 .next {

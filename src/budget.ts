@@ -155,6 +155,25 @@ export function resolveRefunds(
 
 // --- Week maths -----------------------------------------------------------
 
+/**
+ * One discretionary charge behind the "already spent" figure.
+ *
+ * The number on its own is not auditable: a wrongly classified charge changes
+ * the Friday paycheck with nothing on screen to say which one did it. Every
+ * charge that moved the total is listed so the total can be checked against
+ * the account rather than trusted.
+ */
+export interface SpentLine {
+  id: string;
+  date: string;
+  label: string;
+  /** Positive cents. */
+  amountCents: number;
+  /** Refund traced back to this charge, already netted out of the total. */
+  refundedCents: number;
+  pending: boolean;
+}
+
 export interface WeekSummary {
   week: PayWeek;
   incomeCents: number;
@@ -171,6 +190,8 @@ export interface WeekSummary {
   pendingSpentCents: number;
   /** Credits that could not be traced to a purchase, so were left out. */
   unmatchedCreditCents: number;
+  /** What spentGrossCents is made of, largest first. */
+  spentLines: SpentLine[];
 }
 
 export function summariseWeek(
@@ -186,6 +207,18 @@ export function summariseWeek(
   let pendingSpentCents = 0;
   let pendingAffecting = false;
   let unmatchedCreditCents = 0;
+  const spentLines: SpentLine[] = [];
+
+  // A charge can be reversed by more than one credit (a partial refund, then
+  // the rest), so applied amounts accumulate per charge.
+  const refundByCharge = new Map<string, number>();
+  for (const resolution of refunds.values()) {
+    if (resolution.matchedChargeId === null) continue;
+    refundByCharge.set(
+      resolution.matchedChargeId,
+      (refundByCharge.get(resolution.matchedChargeId) ?? 0) + resolution.appliedCents,
+    );
+  }
 
   for (const txn of classified) {
     if (txn.classification === 'income' && isInWeek(txn.date, week)) {
@@ -207,12 +240,24 @@ export function summariseWeek(
 
     if (isInWeek(txn.date, week) && txn.amountCents < 0) {
       spentGrossCents += Math.abs(txn.amountCents);
+      spentLines.push({
+        id: txn.id,
+        date: txn.date,
+        label: txn.merchant ?? txn.description,
+        amountCents: Math.abs(txn.amountCents),
+        refundedCents: refundByCharge.get(txn.id) ?? 0,
+        pending: txn.pending,
+      });
       if (txn.pending) {
         pendingSpentCents += Math.abs(txn.amountCents);
         pendingAffecting = true;
       }
     }
   }
+
+  // Largest first: the drill-down exists to answer "what made this number this
+  // big", and the biggest contributors answer that fastest.
+  spentLines.sort((a, b) => b.amountCents - a.amountCents || a.date.localeCompare(b.date));
 
   // Refunds land in the week of the purchase they reverse, not the week they
   // arrived, so a return never leaves a past week permanently short.
@@ -239,6 +284,7 @@ export function summariseWeek(
     pendingAffecting,
     pendingSpentCents,
     unmatchedCreditCents,
+    spentLines,
   };
 }
 

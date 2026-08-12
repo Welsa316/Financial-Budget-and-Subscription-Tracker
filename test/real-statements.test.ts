@@ -106,6 +106,23 @@ describe('real statement wording: subscriptions', () => {
   it('recognises the recurring Apple charge', () => {
     assert.equal(classify('Recurring Card Purchase 06/17 Apple.Com/Bill 866-712-7753 CA Card 7975', '-0.99').commitment, 'Apple');
   });
+
+  /**
+   * Apple.Com/Bill carries App Store purchases and hardware as well as the
+   * $0.99 subscription. The rule used to be variableAmount, so any charge
+   * naming apple.com read as that subscription: a MacBook would have been
+   * booked as a $0.99/mo bill and dropped straight out of discretionary
+   * spending, silently raising the Friday paycheck by its full price.
+   */
+  it('does not treat every Apple charge as the $0.99 subscription', () => {
+    const laptop = classify('Card Purchase 06/17 Apple.Com/Us 800-676-2775 CA Card 7975', '-1299.00');
+    assert.equal(laptop.commitment, null);
+    assert.equal(laptop.classification, 'discretionary');
+
+    const app = classify('Card Purchase 06/17 Apple.Com/Bill 866-712-7753 CA Card 7975', '-9.99');
+    assert.equal(app.commitment, null, 'a one-off App Store purchase is fun money');
+    assert.equal(app.classification, 'discretionary');
+  });
 });
 
 describe('real statement wording: income and exclusions', () => {
