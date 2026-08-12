@@ -14,12 +14,12 @@
     "weekStartsOn": "friday"
   },
   "incomeBaseline": {
-    "_comment": "Seeds from 7 months of statements. Recomputed from real data once enough history exists.",
+    "_comment": "PER MONTH, confirmed by Walid 2026-08-12. Seeded off 7 months of statements and recomputed from real data once 6 months exist. A floor or peak only means anything within a fixed period - the leanest MONTH is 903.00, while the leanest week is 5.00 - so these must never be rescaled to weeks.",
     "floorCents": 90300,
     "medianCents": 111400,
     "averageCents": 136300,
     "peakCents": 244300,
-    "sampleWeeks": 0,
+    "sampleMonths": 0,
     "source": "Chase statements Dec 2025 - Jul 2026"
   },
   "subscriptions": [

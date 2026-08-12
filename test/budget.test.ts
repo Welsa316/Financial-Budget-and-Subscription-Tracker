@@ -4,6 +4,7 @@ import { classifyOne, type ClassifiableTransaction, type Classified } from '../s
 import {
   buildPaycheckView,
   computeIncomeBaseline,
+  monthlyIncomeTotals,
   currentPayWeek,
   nextFriday,
   payWeekEndingBefore,
@@ -300,28 +301,55 @@ describe('paycheck view', () => {
   });
 });
 
+/**
+ * Monthly, unlike everything else here. The seeded figures were read off
+ * statements a month at a time, and feeding this weekly totals compared them
+ * against a monthly seed — four numbers that disagreed by roughly 4x, silently,
+ * depending on how much history happened to exist.
+ */
 describe('income baseline', () => {
-  it('uses the seeded statement figures until enough weeks exist', () => {
+  it('uses the seeded statement figures until enough months exist', () => {
     const baseline = computeIncomeBaseline([100000, 120000, 90000], rules);
     assert.equal(baseline.source, 'seed');
     assert.equal(baseline.floorCents, rules.incomeBaseline.floorCents);
+    assert.equal(baseline.sampleMonths, 3);
   });
 
-  it('recomputes from real history once enough weeks exist', () => {
-    const weeks = [90000, 100000, 110000, 120000, 130000, 140000, 150000, 250000];
-    const baseline = computeIncomeBaseline(weeks, rules);
+  it('recomputes from real history once six months exist', () => {
+    const months = [90300, 111400, 136300, 244300, 150000, 120000];
+    const baseline = computeIncomeBaseline(months, rules);
 
     assert.equal(baseline.source, 'observed');
-    assert.equal(baseline.floorCents, 90000);
-    assert.equal(baseline.peakCents, 250000);
-    assert.equal(baseline.medianCents, 125000);
-    assert.equal(baseline.sampleWeeks, 8);
+    assert.equal(baseline.floorCents, 90300);
+    assert.equal(baseline.peakCents, 244300);
+    assert.equal(baseline.sampleMonths, 6);
   });
 
-  it('ignores zero-income weeks when computing the floor', () => {
-    const weeks = [0, 0, 90000, 100000, 110000, 120000, 130000, 140000, 150000, 160000];
-    const baseline = computeIncomeBaseline(weeks, rules);
-    assert.equal(baseline.floorCents, 90000, 'a week off is not an income floor of $0');
+  it('ignores a month with no income when computing the floor', () => {
+    const months = [0, 90300, 111400, 136300, 244300, 150000, 120000];
+    const baseline = computeIncomeBaseline(months, rules);
+    assert.equal(baseline.floorCents, 90300, 'a month off is not an income floor of $0');
+  });
+
+  it('totals income by calendar month, ignoring everything that is not income', () => {
+    const txns = [
+      make('DOORDASH INC PAYMENT', '400.00', '2026-06-03'),
+      make('Zelle Payment From Mirza Baig Abc', '250.00', '2026-06-20'),
+      make('CAFE DU MONDE', '-18.40', '2026-06-21'),
+      make('DOORDASH INC PAYMENT', '100.00', '2026-07-02'),
+    ];
+    assert.deepEqual(monthlyIncomeTotals(txns), [65000, 10000]);
+  });
+
+  it('is stated per month, so the seed must never be read as a week', () => {
+    // Walid confirmed these are monthly. The real statements give a weekly
+    // floor of $5.00 against this monthly floor of $903 — a floor does not
+    // convert between periods, which is exactly why both sides are monthly now.
+    assert.equal(rules.incomeBaseline.floorCents, 90300);
+    assert.ok(
+      rules.incomeBaseline.floorCents > 50000,
+      'a weekly floor this size would mean a guaranteed $903 every week',
+    );
   });
 });
 

@@ -50,7 +50,7 @@ export interface Rules {
     medianCents: number;
     averageCents: number;
     peakCents: number;
-    sampleWeeks: number;
+    sampleMonths: number;
     source: string;
   };
   subscriptions: SubscriptionRule[];

@@ -316,31 +316,66 @@ export function buildPaycheckView(
 
 // --- Income baseline ------------------------------------------------------
 
+/**
+ * What a month of income looks like: the lean one, the typical one, the good
+ * one. Everything else in this file is weekly, because the paycheck is weekly —
+ * this is the one thing that is not.
+ *
+ * MONTHLY, on both sides. The seeded figures in config/rules.json were read off
+ * seven months of statements, and a floor, median or peak only means anything
+ * within a fixed period: "the leanest month brought in $903" says nothing about
+ * the leanest week, which is $5. Only an average converts between periods, so
+ * rescaling the rest by 12/52 would have produced four numbers where one was
+ * right and three were fiction. Feeding this weekly totals against a monthly
+ * seed did exactly that, silently, depending on how much history existed.
+ */
 export interface IncomeBaseline {
+  /** The leanest month that had any income at all. */
   floorCents: number;
   medianCents: number;
   averageCents: number;
   peakCents: number;
-  sampleWeeks: number;
+  sampleMonths: number;
   /** Whether these are the seeded figures or recomputed from real history. */
   source: 'seed' | 'observed';
 }
 
 /** Below this, a computed median says more about the sample than about income. */
-const MIN_WEEKS_FOR_OBSERVED = 8;
+const MIN_MONTHS_FOR_OBSERVED = 6;
 
 /**
- * Recomputes the income baseline from actual weekly income once enough history
+ * Total income per calendar month, which is what computeIncomeBaseline expects.
+ *
+ * Exported so the period cannot be got wrong by a caller summing the income
+ * however it happens to have it to hand.
+ *
+ * The first and last month are partial whenever the data does not begin and end
+ * on month boundaries — the seven statements run mid-December to mid-July, so
+ * both ends are half months — and half a month of income is not a lean month.
+ * Drop them before trusting the floor.
+ */
+export function monthlyIncomeTotals(classified: Classified[]): number[] {
+  const months = new Map<string, number>();
+  for (const txn of classified) {
+    if (txn.classification !== 'income') continue;
+    const month = txn.date.slice(0, 7);
+    months.set(month, (months.get(month) ?? 0) + txn.amountCents);
+  }
+  return [...months.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([, cents]) => cents);
+}
+
+/**
+ * Recomputes the income baseline from actual monthly income once enough history
  * exists, falling back to the seeded statement figures until then.
  */
 export function computeIncomeBaseline(
-  weeklyIncomeCents: number[],
+  monthlyIncomeCents: number[],
   rules: Rules = getRules(),
 ): IncomeBaseline {
-  const earning = weeklyIncomeCents.filter((cents) => cents > 0);
+  const earning = monthlyIncomeCents.filter((cents) => cents > 0);
 
-  if (earning.length < MIN_WEEKS_FOR_OBSERVED) {
-    return { ...rules.incomeBaseline, sampleWeeks: earning.length, source: 'seed' };
+  if (earning.length < MIN_MONTHS_FOR_OBSERVED) {
+    return { ...rules.incomeBaseline, sampleMonths: earning.length, source: 'seed' };
   }
 
   const sorted = earning.slice().sort((a, b) => a - b);
@@ -355,7 +390,7 @@ export function computeIncomeBaseline(
     medianCents: median,
     averageCents: Math.round(sorted.reduce((sum, value) => sum + value, 0) / sorted.length),
     peakCents: sorted[sorted.length - 1]!,
-    sampleWeeks: sorted.length,
+    sampleMonths: sorted.length,
     source: 'observed',
   };
 }
