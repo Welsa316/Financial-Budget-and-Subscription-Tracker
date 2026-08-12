@@ -297,10 +297,15 @@ describe('rows', () => {
     make('Card Purchase 08/10 Rouses Market Kenner LA', '-96.42', '2026-08-10'),
   ];
 
-  /** The text of a row's collapsed head, by card name. */
+  /**
+   * The text of a row's collapsed head, by card name. Tags are removed without
+   * inserting anything, because a figure is split across spans to drop its
+   * cents back a size — replacing tags with a space turns $96.42 into "$96 .42"
+   * and the assertion fails on markup rather than on behaviour.
+   */
   const head = (html: string, name: string): string | null => {
     for (const m of html.matchAll(/<summary class="row__head">([\s\S]*?)<\/summary>/g)) {
-      const text = m[1]!.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const text = m[1]!.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
       if (text.includes(name)) return text;
     }
     return null;

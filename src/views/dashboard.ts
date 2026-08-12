@@ -1,4 +1,4 @@
-import { esc, money, moneyAbs } from '../format.js';
+import { esc, money, moneyAbs, moneyParts } from '../format.js';
 import { formatStamp, formatDayMonth, relativeDays } from '../time.js';
 import type { Classified } from '../classify.js';
 import type { CommitmentStatus } from '../commitments.js';
@@ -8,7 +8,7 @@ import {
   type ReviewReason,
   type SpendingSlice,
 } from '../dashboard.js';
-import type { SpentLine, WeekSummary } from '../budget.js';
+import { standing, type SpentLine, type WeekSummary } from '../budget.js';
 import {
   CARD_GROUP,
   CARD_ICONS,
@@ -86,6 +86,11 @@ function spentBreakdown(current: WeekSummary, visibleIds: Set<string>): string {
         </details>`;
 }
 
+function ordinal(n: number): string {
+  const names = ['', 'best', '2nd best', '3rd best', '4th best', '5th best'];
+  return names[n] ?? `${n}th`;
+}
+
 function paycheckDetail(data: DashboardViewData): string {
   const { current, daysUntilPayday } = data.paycheck;
   // A charge is only linkable if the card holding its anchor is actually
@@ -103,14 +108,43 @@ function paycheckDetail(data: DashboardViewData): string {
       ? 'Payday is today'
       : `${daysUntilPayday} day${daysUntilPayday === 1 ? '' : 's'} until Friday`;
 
-  return `        <p class="detail__when">${esc(when)}</p>
+  const rank = standing(data.paycheck);
+  const context = !rank.known
+    ? when
+    : `${when} · ${
+        rank.rank === 1
+          ? `best of the last ${rank.outOf}`
+          : rank.rank === rank.outOf
+            ? `worst of the last ${rank.outOf}`
+            : `${ordinal(rank.rank)} of the last ${rank.outOf}`
+      }`;
 
-        <p class="hero__maths">
-          <span class="num">${esc(money(current.incomeCents))}</span> earned
-          &times; ${ratePercent}% =
-          <span class="num">${esc(money(share))}</span>
-          &minus; <span class="num">${esc(money(current.spentNetCents))}</span> already spent
-        </p>
+  return `        <p class="detail__when">${esc(context)}</p>
+
+        <div class="stats3">
+          <div class="stats3__cell stats3__cell--in">
+            <span class="stats3__label">Earned</span>
+            <span class="stats3__value num">${moneyParts(current.incomeCents)}</span>
+          </div>
+          <div class="stats3__cell stats3__cell--out">
+            <span class="stats3__label">Spent</span>
+            <span class="stats3__value num">${moneyParts(current.spentNetCents)}</span>
+          </div>
+          <div class="stats3__cell stats3__cell--net">
+            <span class="stats3__label">${ratePercent}% share</span>
+            <span class="stats3__value num">${moneyParts(share)}</span>
+          </div>
+        </div>
+
+        ${
+          rank.known && rank.vsUsualCents !== 0
+            ? `<p class="hero__maths">
+                 <span class="num">${esc(moneyAbs(rank.vsUsualCents))}</span> ${
+                   rank.vsUsualCents > 0 ? 'more' : 'less'
+                 } than a usual week.
+               </p>`
+            : ''
+        }
 
         ${
           // The refund, deficit and pending notes used to sit here. All three
@@ -707,7 +741,10 @@ function transactionsDetail(data: DashboardViewData): string {
  */
 interface Row {
   id: CardId;
+  /** Plain text, used for the accessible name and by the tests. */
   value: string;
+  /** Same figure with the cents dropped back a size. Already escaped. */
+  valueHtml?: string;
   /** Colours the value: the paycheck is the one number that means something. */
   tone?: 'positive' | 'negative' | 'warn';
   detail: string;
@@ -729,27 +766,41 @@ function buildRows(data: DashboardViewData, trustworthy: boolean): Row[] {
     {
       id: 'paycheck',
       value: money(current.allowanceCents),
+      valueHtml: moneyParts(current.allowanceCents),
       tone: current.allowanceCents < 0 ? 'negative' : 'positive',
       detail: paycheckDetail(data),
     },
     {
       id: 'balances',
       value: balance === null ? '—' : money(balance),
+      valueHtml: balance === null ? undefined : moneyParts(balance),
       detail: data.accounts.map((a) => balanceDetail(a, trustworthy)).join('\n'),
     },
     {
       id: 'shape',
       value: data.shape.sampleMonths === 0 ? '—' : money(data.shape.freeCents),
+      valueHtml:
+        data.shape.sampleMonths === 0 ? undefined : moneyParts(data.shape.freeCents),
       tone: data.shape.freeCents < 0 ? 'negative' : undefined,
       detail: shapeDetail(data),
     },
-    { id: 'upcoming', value: moneyAbs(dueTotal), detail: upcomingDetail(data) },
+    {
+      id: 'upcoming',
+      value: moneyAbs(dueTotal),
+      valueHtml: moneyParts(dueTotal),
+      detail: upcomingDetail(data),
+    },
     {
       id: 'commitments',
       value: `${moneyAbs(data.totals.totalPerMonthCents)}/mo`,
       detail: commitmentsDetail(data),
     },
-    { id: 'spending', value: moneyAbs(data.spending.totalCents), detail: spendingDetail(data) },
+    {
+      id: 'spending',
+      value: moneyAbs(data.spending.totalCents),
+      valueHtml: moneyParts(data.spending.totalCents),
+      detail: spendingDetail(data),
+    },
     {
       id: 'transactions',
       value: String(data.transactionCount),
@@ -763,6 +814,7 @@ function buildRows(data: DashboardViewData, trustworthy: boolean): Row[] {
     rows.splice(1, 0, {
       id: 'review',
       value: moneyAbs(reviewTotal),
+      valueHtml: moneyParts(reviewTotal),
       tone: 'warn',
       detail: reviewDetail(data),
       open: true,
@@ -780,9 +832,9 @@ function row(item: Row): string {
                   <svg viewBox="0 0 24 24"><path d="${CARD_ICONS[item.id]}" /></svg>
                 </span>
                 <span class="row__name">${esc(CARD_LABELS[item.id])}</span>
-                <span class="row__value num${item.tone ? ` row__value--${item.tone}` : ''}">${esc(
-                  item.value,
-                )}</span>
+                <span class="row__value num${item.tone ? ` row__value--${item.tone}` : ''}">${
+                  item.valueHtml ?? esc(item.value)
+                }</span>
               </summary>
               <div class="row__body">
                 ${item.detail}

@@ -10,7 +10,10 @@ import {
   payWeekEndingBefore,
   previousPayWeeks,
   resolveRefunds,
+  standing,
   summariseWeek,
+  type PaycheckView,
+  type WeekSummary,
 } from '../src/budget.js';
 import { getRules } from '../src/rules.js';
 import { normalizeDescription, toCents } from '../src/normalize.js';
@@ -389,5 +392,42 @@ describe('refund attribution regressions', () => {
     ];
     const week = summariseWeek(WEEK, txns, resolveRefunds(txns, rules), rules);
     assert.ok(week.spentNetCents >= 0, `spending floored at zero, got ${week.spentNetCents}`);
+  });
+});
+
+/**
+ * A bare "-$1,468.64" says nothing about whether that is a normal week. Rank
+ * rather than percentage: a percentage against a lumpy base is noise — "up
+ * 4,000%" on a week that earned $12 is arithmetic, not information.
+ */
+describe('how this week stands against the others', () => {
+  const view = (current: number, previous: number[]) =>
+    ({
+      current: { allowanceCents: current } as WeekSummary,
+      previous: previous.map((allowanceCents) => ({ allowanceCents }) as WeekSummary),
+      daysUntilPayday: 2,
+      today: '2026-08-12',
+    }) as PaycheckView;
+
+  it('ranks this week among the ones before it', () => {
+    assert.equal(standing(view(500, [100, 200, 300, 400])).rank, 1, 'best');
+    assert.equal(standing(view(50, [100, 200, 300, 400])).rank, 5, 'worst');
+    assert.equal(standing(view(250, [100, 200, 300, 400])).rank, 3, 'middle');
+  });
+
+  it('counts this week in the size of the set', () => {
+    assert.equal(standing(view(250, [100, 200, 300, 400])).outOf, 5);
+  });
+
+  it('measures against the median of the earlier weeks, not their average', () => {
+    // One freak week must not move what "usual" means.
+    const s = standing(view(100, [90, 100, 110, 100000]));
+    assert.equal(s.vsUsualCents, 100 - 105, 'median of 90,100,110,100000 is 105');
+  });
+
+  it('says nothing at all without enough history to say it', () => {
+    assert.equal(standing(view(500, [])).known, false);
+    assert.equal(standing(view(500, [100])).known, false);
+    assert.equal(standing(view(500, [100, 200])).known, true);
   });
 });

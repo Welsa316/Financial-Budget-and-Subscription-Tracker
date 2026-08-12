@@ -56,3 +56,18 @@ export function titleCase(input: string): string {
     )
     .join(' ');
 }
+
+/**
+ * A money figure with the cents dropped back a size.
+ *
+ * Borrowed from the reference designs and it earns its keep: at display size
+ * the decimal is the least important part of the number and reading it at full
+ * weight slows the whole figure down. Returns HTML, so the caller must not
+ * escape it again — the input is a number, not text.
+ */
+export function moneyParts(cents: number): string {
+  const whole = money(cents);
+  const dot = whole.lastIndexOf('.');
+  if (dot === -1) return esc(whole);
+  return `${esc(whole.slice(0, dot))}<span class="money__cents">${esc(whole.slice(dot))}</span>`;
+}

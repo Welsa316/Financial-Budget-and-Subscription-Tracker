@@ -314,6 +314,51 @@ export function buildPaycheckView(
   };
 }
 
+/**
+ * How this week compares to the ones before it.
+ *
+ * A bare "-$1,468.64" says nothing about whether that is a normal week. The
+ * previous weeks were already being computed and shown in a table nobody
+ * opens; against them the same number becomes "worst of the last five", which
+ * is the sentence you actually wanted.
+ *
+ * Rank rather than percentage. A percentage against a lumpy base is noise —
+ * "up 4,000%" on a week that earned $12 is arithmetic, not information — and
+ * with five weeks the honest statement is where this one sits among them.
+ */
+export interface WeekStanding {
+  /** 1 = best of the set. */
+  rank: number;
+  outOf: number;
+  /** Difference against the median of the earlier weeks. */
+  vsUsualCents: number;
+  /** False when there is not enough history to say anything. */
+  known: boolean;
+}
+
+export function standing(view: PaycheckView): WeekStanding {
+  const earlier = view.previous.map((week) => week.allowanceCents);
+  if (earlier.length < 2) return { rank: 0, outOf: 0, vsUsualCents: 0, known: false };
+
+  const all = [view.current.allowanceCents, ...earlier];
+  const sorted = [...all].sort((a, b) => b - a);
+  const rank = sorted.indexOf(view.current.allowanceCents) + 1;
+
+  const ordered = [...earlier].sort((a, b) => a - b);
+  const middle = Math.floor(ordered.length / 2);
+  const usual =
+    ordered.length % 2 === 0
+      ? Math.round((ordered[middle - 1]! + ordered[middle]!) / 2)
+      : ordered[middle]!;
+
+  return {
+    rank,
+    outOf: all.length,
+    vsUsualCents: view.current.allowanceCents - usual,
+    known: true,
+  };
+}
+
 // --- Income baseline ------------------------------------------------------
 
 /**

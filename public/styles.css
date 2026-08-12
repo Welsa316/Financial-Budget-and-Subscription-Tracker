@@ -1600,3 +1600,64 @@ body:has(.offline-banner) .topbar {
 .row__body .disclosure > summary::before {
   color: var(--ink-3);
 }
+
+/* ---------- Three numbers that belong together ----------
+   Coloured left borders rather than three separate boxes: the reference
+   designs put Income / Expenses / Saved in three cards, which is the same
+   "everything is a card" problem in a darker skin. A rule down the left
+   relates them for the cost of one pixel. */
+
+.stats3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0.15rem 0 0.75rem;
+}
+
+.stats3__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding-left: 0.55rem;
+  border-left: 2px solid var(--line-strong);
+  min-width: 0;
+}
+
+.stats3__cell--in {
+  border-left-color: var(--positive);
+}
+
+.stats3__cell--out {
+  border-left-color: var(--negative);
+}
+
+.stats3__cell--net {
+  border-left-color: var(--accent);
+}
+
+.stats3__label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.stats3__value {
+  font-size: 0.9375rem;
+  font-weight: 620;
+  overflow-wrap: anywhere;
+}
+
+/* The cents drop back a size: at any display weight they are the least
+   important part of the figure and reading them at full weight slows the
+   whole number down. */
+.money__cents {
+  font-size: 0.72em;
+  color: var(--ink-3);
+}
+
+.row__value .money__cents {
+  color: inherit;
+  opacity: 0.62;
+}
