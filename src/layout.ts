@@ -31,10 +31,55 @@ export const CARD_LABELS: Record<CardId, string> = {
   review: 'Needs a look',
   balances: 'Available to spend',
   shape: 'A typical month',
-  upcoming: 'Due in the next 30 days',
-  commitments: 'Monthly commitments',
+  upcoming: 'Due in 30 days',
+  commitments: 'Commitments',
   spending: 'Last 30 days',
   transactions: 'Recent transactions',
+};
+
+/**
+ * The groups rows sit under, in order.
+ *
+ * A page of ten identical boxes has no hierarchy — everything shouts equally,
+ * so nothing is read. Collapsing each card to one row of icon, name and value
+ * puts the whole dashboard on a screen or two, and headings do the separating
+ * that ten borders were failing to do.
+ */
+export const GROUPS = ['week', 'money', 'coming', 'activity'] as const;
+export type GroupId = (typeof GROUPS)[number];
+
+export const GROUP_LABELS: Record<GroupId, string> = {
+  week: 'This week',
+  money: 'Accounts',
+  coming: 'Coming up',
+  activity: 'Where it goes',
+};
+
+export const CARD_GROUP: Record<CardId, GroupId> = {
+  paycheck: 'week',
+  review: 'week',
+  balances: 'money',
+  shape: 'coming',
+  upcoming: 'coming',
+  commitments: 'coming',
+  spending: 'activity',
+  transactions: 'activity',
+};
+
+/**
+ * One simple mark each, drawn inline so nothing external loads and the CSP
+ * stays as tight as it is. Stroked rather than filled, at a common 24-unit
+ * grid, so they read as one set rather than as eight borrowed glyphs.
+ */
+export const CARD_ICONS: Record<CardId, string> = {
+  paycheck: 'M3 7h18v10H3zM12 10.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3',
+  review: 'M12 3.5 21 20H3zM12 10v4M12 16.5v.5',
+  balances: 'M4 6h16v12H4zM4 10h16M8 14h4',
+  shape: 'M12 3a9 9 0 1 0 9 9h-9z',
+  upcoming: 'M4 5h16v16H4zM4 9h16M8 3v4M16 3v4M9 14h6',
+  commitments: 'M4 5h13l3 3v11H4zM8 5v5h7V5M8 15h8',
+  spending: 'M4 20V11m5 9V5m5 15v-6m5 6V8',
+  transactions: 'M4 8h13l-3-3M20 16H7l3 3',
 };
 
 /** Cards that stay put: the paycheck is the point, and the queue guards it. */

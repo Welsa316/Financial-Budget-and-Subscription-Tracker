@@ -9,7 +9,15 @@ import {
   type SpendingSlice,
 } from '../dashboard.js';
 import type { SpentLine, WeekSummary } from '../budget.js';
-import type { CardId, CardLayout } from '../layout.js';
+import {
+  CARD_GROUP,
+  CARD_ICONS,
+  CARD_LABELS,
+  GROUPS,
+  GROUP_LABELS,
+  type CardId,
+  type CardLayout,
+} from '../layout.js';
 
 export interface AccountRow {
   id: string;
@@ -78,7 +86,7 @@ function spentBreakdown(current: WeekSummary, visibleIds: Set<string>): string {
         </details>`;
 }
 
-function paycheckSection(data: DashboardViewData): string {
+function paycheckDetail(data: DashboardViewData): string {
   const { current, daysUntilPayday } = data.paycheck;
   // A charge is only linkable if the card holding its anchor is actually
   // rendered. Hiding Recent transactions used to leave every one of these
@@ -95,15 +103,7 @@ function paycheckSection(data: DashboardViewData): string {
       ? 'Payday is today'
       : `${daysUntilPayday} day${daysUntilPayday === 1 ? '' : 's'} until Friday`;
 
-  return `      <section class="card card--hero">
-        <div class="hero__top">
-          <h2 class="card__title">Friday paycheck</h2>
-          <span class="hero__when">${esc(when)}</span>
-        </div>
-
-        <p class="figure figure--xl ${negative ? 'figure--negative' : 'figure--positive'}">${esc(
-          money(current.allowanceCents),
-        )}</p>
+  return `        <p class="detail__when">${esc(when)}</p>
 
         <p class="hero__maths">
           <span class="num">${esc(money(current.incomeCents))}</span> earned
@@ -145,8 +145,7 @@ ${spentBreakdown(current, visibleIds)}
               ${data.paycheck.previous.map(weekRow).join('\n              ')}
             </tbody>
           </table>
-        </details>
-      </section>`;
+        </details>`;
 }
 
 function weekRow(week: WeekSummary): string {
@@ -162,18 +161,18 @@ function weekRow(week: WeekSummary): string {
 
 // --- 2. Available to spend ------------------------------------------------
 
-function balanceSection(account: AccountRow, trustworthy: boolean): string {
+function balanceDetail(account: AccountRow, trustworthy: boolean): string {
   const available = account.available_cents;
   const ledger = account.ledger_cents;
   const headline = available ?? ledger;
   const gap = available !== null && ledger !== null ? ledger - available : null;
 
-  return `      <section class="card">
-        <h2 class="card__title">Available to spend</h2>
-        ${
+  return `        ${
           headline === null
             ? '<p class="card__body">No balance reported.</p>'
-            : `<p class="figure ${trustworthy ? '' : 'figure--stale'}">${esc(money(headline))}</p>`
+            : trustworthy
+              ? ''
+              : '<p class="detail__when">This balance is not known to be current.</p>'
         }
         <dl class="stats">
           ${
@@ -189,8 +188,7 @@ function balanceSection(account: AccountRow, trustworthy: boolean): string {
           <div class="stats__row"><dt>${esc(account.name)}</dt><dd>${esc(
             account.institution ?? '',
           )}</dd></div>
-        </dl>
-      </section>`;
+        </dl>`;
 }
 
 // --- 3. Next up -----------------------------------------------------------
@@ -203,19 +201,16 @@ function balanceSection(account: AccountRow, trustworthy: boolean): string {
  * money is actually spendable. The dates were already computed for every
  * commitment and all but one thrown away.
  */
-function upcomingSection(data: DashboardViewData): string {
+function upcomingDetail(data: DashboardViewData): string {
   const items = data.upcoming;
   if (items.length === 0) return '';
 
   const total = items.reduce((sum, item) => sum + item.expectedCents, 0);
   const anyVariable = items.some((item) => item.variableAmount);
 
-  return `      <section class="card card--next">
-        <div class="hero__top">
-          <h2 class="card__title">Due in the next 30 days</h2>
-          <span class="card__total num">${esc(moneyAbs(total))}${anyVariable ? '+' : ''}</span>
-        </div>
-        <ul class="due">
+  void total;
+  void anyVariable;
+  return `        <ul class="due">
           ${items
             .map(
               (item) => `<li class="due__row">
@@ -234,26 +229,21 @@ function upcomingSection(data: DashboardViewData): string {
         </ul>
         <p class="card__hint card__hint--left">
           Projected from the day each one has actually billed on, rolled forward.
-        </p>
-      </section>`;
+        </p>`;
 }
 
 /**
  * Income against what is already spoken for — the one number that says whether
  * the commitments total is a lot or not.
  */
-function shapeSection(data: DashboardViewData): string {
+function shapeDetail(data: DashboardViewData): string {
   const { shape, totals } = data;
   if (shape.sampleMonths === 0) return '';
 
   const overcommitted = shape.freeCents < 0;
 
-  return `      <section class="card">
-        <h2 class="card__title">A typical month</h2>
-        <p class="figure ${overcommitted ? 'figure--negative' : ''}">${esc(
-          money(shape.freeCents),
-        )}</p>
-        <p class="card__lede">
+  void overcommitted;
+  return `        <p class="card__lede">
           left after everything already committed, on a median month of
           <span class="num">${esc(money(shape.incomeCents))}</span>.
         </p>
@@ -284,8 +274,7 @@ function shapeSection(data: DashboardViewData): string {
             shape.sampleMonths === 1 ? '' : 's'
           }, not the average — one good month should not
           set an expectation you cannot count on.
-        </p>
-      </section>`;
+        </p>`;
 }
 
 // --- 4. Monthly commitments ----------------------------------------------
@@ -342,15 +331,13 @@ function commitmentRow(item: CommitmentStatus): string {
  * headings carry their own total, so collapsing hides detail rather than
  * information.
  */
-function commitmentsSection(data: DashboardViewData): string {
+function commitmentsDetail(data: DashboardViewData): string {
   const essentials = data.commitments.filter((item) => item.type === 'essential');
   const subscriptions = data.commitments.filter((item) => item.type === 'subscription');
   const { totals } = data;
   const allEssentialsPaid = totals.essentialsPaidThisMonth === totals.essentialsCount;
 
-  return `      <section class="card">
-        <h2 class="card__title">Monthly commitments</h2>
-        <p class="card__lede">
+  return `        <p class="card__lede">
           <strong class="num">${esc(moneyAbs(totals.totalPerMonthCents))}</strong> a month committed.
           <span class="${allEssentialsPaid ? '' : 'is-warning'}">${
             totals.essentialsPaidThisMonth
@@ -377,8 +364,7 @@ function commitmentsSection(data: DashboardViewData): string {
           <ul class="commits">
             ${subscriptions.map(commitmentRow).join('\n            ')}
           </ul>
-        </details>
-      </section>`;
+        </details>`;
 }
 
 // --- 5. Spending breakdown ------------------------------------------------
@@ -416,16 +402,12 @@ function sliceRows(slices: SpendingSlice[], linkPlaces: boolean): string {
     .join('\n            ');
 }
 
-function spendingSection(data: DashboardViewData): string {
+function spendingDetail(data: DashboardViewData): string {
   const s = data.spending;
   // Same reason: the by-place view renders the anchors these bars aim at, and
   // it is part of the transaction list.
   const linkPlaces = !data.layout.hidden.has('transactions');
-  return `      <section class="card">
-        <h2 class="card__title">Last ${s.days} days</h2>
-        <p class="figure figure--sm">${esc(moneyAbs(s.totalCents))}</p>
-
-        <div class="split" role="img" aria-label="Subscriptions and bills ${s.billsPercent}%, everything else ${
+  return `        <div class="split" role="img" aria-label="Subscriptions and bills ${s.billsPercent}%, everything else ${
           100 - s.billsPercent
         }%">
           <span class="split__bills w-${s.billsPercent}"></span>
@@ -448,8 +430,7 @@ function spendingSection(data: DashboardViewData): string {
         <h3 class="subhead">Everything else</h3>
         <ul class="slices">
             ${sliceRows(s.discretionaryCategories, linkPlaces)}
-        </ul>
-      </section>`;
+        </ul>`;
 }
 
 // --- 6. Recent transactions ----------------------------------------------
@@ -561,7 +542,7 @@ const REVIEW_TAG: Record<ReviewReason, string> = {
  * same reclassify buttons as the transaction list, so the queue is cleared
  * where it is read rather than by going to find each charge.
  */
-function reviewSection(data: DashboardViewData): string {
+function reviewDetail(data: DashboardViewData): string {
   const items = data.review;
   if (items.length === 0) return '';
 
@@ -570,12 +551,7 @@ function reviewSection(data: DashboardViewData): string {
     0,
   );
 
-  return `      <section class="card card--review">
-        <div class="hero__top">
-          <h2 class="card__title">Needs a look</h2>
-          <span class="card__total">${items.length}</span>
-        </div>
-        <p class="card__lede">
+  return `        <p class="card__lede">
           ${esc(moneyAbs(total))} worth confirming: places you have not spent at before,
           amounts out of line with a merchant's own history, and money in that is not
           recognised income. Anything wrong here is moving the Friday number.
@@ -680,7 +656,7 @@ function placeGroup(group: PlaceGroup): string {
           </li>`;
 }
 
-function transactionsSection(data: DashboardViewData): string {
+function transactionsDetail(data: DashboardViewData): string {
   const byPlace = data.recentSort === 'place';
 
   // Plain links, so the sort survives a reload and can be bookmarked. There is
@@ -702,9 +678,7 @@ function transactionsSection(data: DashboardViewData): string {
           ${data.recent.map(transactionRow).join('\n          ')}
         </ul>`;
 
-  return `      <section class="card">
-        <h2 class="card__title">Recent transactions</h2>
-        ${toggle}
+  return `        ${toggle}
         <p class="card__lede">${
           byPlace
             ? `The last ${data.recent.length} transactions, gathered by where the money went, biggest first.`
@@ -714,37 +688,134 @@ function transactionsSection(data: DashboardViewData): string {
           data.recent.length === 0
             ? '<p class="card__body">Nothing yet. Run a sync once SimpleFIN is connected.</p>'
             : body
-        }
-      </section>`;
+        }`;
 }
 
 // --- Page -----------------------------------------------------------------
 
 /**
- * The cards, in the order the layout asks for and minus the hidden ones.
+ * Everything the dashboard knows, one row each.
  *
- * The banners and the sync card are rendered outside this on purpose: they are
- * how the dashboard says it might be lying to you, so they are not the user's
- * to hide.
+ * Ten identical bordered boxes stacked down a page have no hierarchy: every
+ * one shouts the same, so none of them is read, and the answer to any question
+ * is somewhere in five thousand pixels of scroll. A row states the name and
+ * the number — which is the whole answer most of the time — and keeps the
+ * working behind a tap.
+ *
+ * `value` is what the row says when closed, so it has to be the number you
+ * came for rather than a count of things inside.
  */
-function renderCards(data: DashboardViewData, trustworthy: boolean): string {
-  const render: Record<CardId, () => string> = {
-    paycheck: () => paycheckSection(data),
-    review: () => reviewSection(data),
-    balances: () =>
-      data.accounts.map((account) => balanceSection(account, trustworthy)).join('\n'),
-    shape: () => shapeSection(data),
-    upcoming: () => upcomingSection(data),
-    commitments: () => commitmentsSection(data),
-    spending: () => spendingSection(data),
-    transactions: () => transactionsSection(data),
-  };
+interface Row {
+  id: CardId;
+  value: string;
+  /** Colours the value: the paycheck is the one number that means something. */
+  tone?: 'positive' | 'negative' | 'warn';
+  detail: string;
+  /** Rows open on load. Reserved for something that needs answering now. */
+  open?: boolean;
+}
 
-  return data.layout.order
-    .filter((id) => !data.layout.hidden.has(id))
-    .map((id) => render[id]())
-    .filter((html) => html !== '')
+function buildRows(data: DashboardViewData, trustworthy: boolean): Row[] {
+  const { current } = data.paycheck;
+  const account = data.accounts[0];
+  const balance = account ? (account.available_cents ?? account.ledger_cents) : null;
+  const dueTotal = data.upcoming.reduce((sum, item) => sum + item.expectedCents, 0);
+  const reviewTotal = data.review.reduce(
+    (sum, item) => (item.transaction.amountCents < 0 ? sum + Math.abs(item.transaction.amountCents) : sum),
+    0,
+  );
+
+  const rows: Row[] = [
+    {
+      id: 'paycheck',
+      value: money(current.allowanceCents),
+      tone: current.allowanceCents < 0 ? 'negative' : 'positive',
+      detail: paycheckDetail(data),
+    },
+    {
+      id: 'balances',
+      value: balance === null ? '—' : money(balance),
+      detail: data.accounts.map((a) => balanceDetail(a, trustworthy)).join('\n'),
+    },
+    {
+      id: 'shape',
+      value: data.shape.sampleMonths === 0 ? '—' : money(data.shape.freeCents),
+      tone: data.shape.freeCents < 0 ? 'negative' : undefined,
+      detail: shapeDetail(data),
+    },
+    { id: 'upcoming', value: moneyAbs(dueTotal), detail: upcomingDetail(data) },
+    {
+      id: 'commitments',
+      value: `${moneyAbs(data.totals.totalPerMonthCents)}/mo`,
+      detail: commitmentsDetail(data),
+    },
+    { id: 'spending', value: moneyAbs(data.spending.totalCents), detail: spendingDetail(data) },
+    {
+      id: 'transactions',
+      value: String(data.transactionCount),
+      detail: transactionsDetail(data),
+    },
+  ];
+
+  // Only when there is something in it, and open, because a queue nobody opens
+  // is a queue nobody clears.
+  if (data.review.length > 0) {
+    rows.splice(1, 0, {
+      id: 'review',
+      value: moneyAbs(reviewTotal),
+      tone: 'warn',
+      detail: reviewDetail(data),
+      open: true,
+    });
+  }
+
+  return rows;
+}
+
+function row(item: Row): string {
+  return `<li class="row">
+            <details class="row__d"${item.open ? ' open' : ''}>
+              <summary class="row__head">
+                <span class="row__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="${CARD_ICONS[item.id]}" /></svg>
+                </span>
+                <span class="row__name">${esc(CARD_LABELS[item.id])}</span>
+                <span class="row__value num${item.tone ? ` row__value--${item.tone}` : ''}">${esc(
+                  item.value,
+                )}</span>
+              </summary>
+              <div class="row__body">
+                ${item.detail}
+              </div>
+            </details>
+          </li>`;
+}
+
+function renderCards(data: DashboardViewData, trustworthy: boolean): string {
+  const rows = buildRows(data, trustworthy).filter((item) => !data.layout.hidden.has(item.id));
+  const order = new Map(data.layout.order.map((id, index) => [id, index]));
+  rows.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+
+  const groups = GROUPS.map((group) => {
+    const inGroup = rows.filter((item) => CARD_GROUP[item.id] === group);
+    if (inGroup.length === 0) return '';
+    return `      <section class="group">
+        <h2 class="group__head">${esc(GROUP_LABELS[group])}</h2>
+        <ul class="rows">
+          ${inGroup.map(row).join('\n          ')}
+        </ul>
+      </section>`;
+  })
+    .filter(Boolean)
     .join('\n');
+
+  return (
+    groups ||
+    `      <section class="group">
+        <p class="group__empty">Every card is turned off.</p>
+        <a class="btn btn--quiet btn--block" href="/cards">Choose cards</a>
+      </section>`
+  );
 }
 
 export function dashboardBody(data: DashboardViewData): string {
@@ -834,29 +905,43 @@ export function dashboardBody(data: DashboardViewData): string {
 ${banners}
 ${renderCards(data, trustworthy)}
 
-      <section class="card">
-        <h2 class="card__title">Sync</h2>
-        <dl class="stats">
-          <div class="stats__row"><dt>Transactions stored</dt><dd class="num">${data.transactionCount}</dd></div>
-          <div class="stats__row"><dt>Pending right now</dt><dd class="num">${data.pendingCount}</dd></div>
-          <div class="stats__row"><dt>Last sync</dt><dd>${
-            data.lastSync?.finished_at ? esc(formatStamp(data.lastSync.finished_at)) : '—'
-          }</dd></div>
-          <div class="stats__row"><dt>Next scheduled</dt><dd>${
-            data.nextScheduled ? esc(formatStamp(data.nextScheduled)) : '—'
-          }</dd></div>
-        </dl>
-        ${
-          data.lastSync?.status === 'error' && data.lastSync.error
-            ? `<p class="card__error">Last sync failed: ${esc(data.lastSync.error)}</p>`
-            : syncWarning
-              ? `<p class="card__error">Last sync reported: ${esc(syncWarning)}</p>`
-              : ''
-        }
-        <button class="btn btn--primary btn--block" id="sync-now" type="button" ${
-          data.bankConnected ? '' : 'disabled'
-        }>Sync now</button>
-        <p class="card__hint" id="sync-feedback" role="status" aria-live="polite"></p>
+      <section class="group">
+        <h2 class="group__head">Setup</h2>
+        <ul class="rows">
+          <li class="row">
+            <details class="row__d">
+              <summary class="row__head">
+                <span class="row__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" /></svg>
+                </span>
+                <span class="row__name">Sync</span>
+                <span class="row__value num">${
+                  data.lastSync?.finished_at ? esc(formatStamp(data.lastSync.finished_at)) : 'Never'
+                }</span>
+              </summary>
+              <div class="row__body">
+                <dl class="stats">
+                  <div class="stats__row"><dt>Transactions stored</dt><dd class="num">${data.transactionCount}</dd></div>
+                  <div class="stats__row"><dt>Pending right now</dt><dd class="num">${data.pendingCount}</dd></div>
+                  <div class="stats__row"><dt>Next scheduled</dt><dd>${
+                    data.nextScheduled ? esc(formatStamp(data.nextScheduled)) : '—'
+                  }</dd></div>
+                </dl>
+                ${
+                  data.lastSync?.status === 'error' && data.lastSync.error
+                    ? `<p class="card__error">Last sync failed: ${esc(data.lastSync.error)}</p>`
+                    : syncWarning
+                      ? `<p class="card__error">Last sync reported: ${esc(syncWarning)}</p>`
+                      : ''
+                }
+                <button class="btn btn--primary btn--block" id="sync-now" type="button" ${
+                  data.bankConnected ? '' : 'disabled'
+                }>Sync now</button>
+                <p class="card__hint" id="sync-feedback" role="status" aria-live="polite"></p>
+              </div>
+            </details>
+          </li>
+        </ul>
       </section>
 
       <footer class="footer">

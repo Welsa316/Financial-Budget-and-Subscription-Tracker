@@ -285,3 +285,63 @@ describe('links survive a card being hidden', () => {
     );
   });
 });
+
+/**
+ * Every card is one row: icon, name, value, and the working behind a tap. The
+ * point is that the value answers the question WITHOUT being opened, so that
+ * is what these assert — not that a row exists.
+ */
+describe('rows', () => {
+  const txns = [
+    make('DOORDASH INC PAYMENT', '900.00', '2026-08-08'),
+    make('Card Purchase 08/10 Rouses Market Kenner LA', '-96.42', '2026-08-10'),
+  ];
+
+  /** The text of a row's collapsed head, by card name. */
+  const head = (html: string, name: string): string | null => {
+    for (const m of html.matchAll(/<summary class="row__head">([\s\S]*?)<\/summary>/g)) {
+      const text = m[1]!.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      if (text.includes(name)) return text;
+    }
+    return null;
+  };
+
+  it('states the number on the closed row, not only inside it', () => {
+    const html = render({}, txns);
+    assert.match(head(html, 'Friday paycheck') ?? '', /\$/, 'the allowance is on the row');
+    assert.match(head(html, 'Commitments') ?? '', /\$701\.76\/mo/);
+    assert.match(head(html, 'Last 30 days') ?? '', /\$96\.42/);
+  });
+
+  it('groups the rows under headings rather than stacking eight boxes', () => {
+    const html = render({}, txns);
+    for (const heading of ['This week', 'Accounts', 'Coming up', 'Where it goes']) {
+      assert.ok(html.includes(heading), `${heading} groups its rows`);
+    }
+  });
+
+  it('keeps every row shut except the queue, which is there to be worked', () => {
+    const withReview = render(
+      { review: [{ transaction: txns[1]!, reason: 'first-time', detail: 'x' }] },
+      txns,
+    );
+    const opened = [...withReview.matchAll(/<details class="row__d"( open)?>/g)].filter(
+      (m) => m[1],
+    );
+    assert.equal(opened.length, 1, 'only one row starts open');
+    assert.equal(
+      [...render({}, txns).matchAll(/<details class="row__d"( open)?>/g)].filter((m) => m[1]).length,
+      0,
+      'and none when there is nothing to work through',
+    );
+  });
+
+  it('drops a hidden card out of its group entirely', () => {
+    const html = render(
+      { layout: { order: [...CARD_IDS], hidden: new Set<CardId>(['spending']) } },
+      txns,
+    );
+    assert.ok(!head(html, 'Last 30 days'), 'no row');
+    assert.ok(head(html, 'Recent transactions'), 'its group survives for the others');
+  });
+});

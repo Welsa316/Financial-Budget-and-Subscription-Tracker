@@ -1561,3 +1561,152 @@ body:has(.offline-banner) .topbar {
   color: var(--ink-3);
   padding: 0 0.35rem;
 }
+
+/* ---------- Rows ----------
+   Every card is one row: icon, name, value, and the working behind a tap.
+   Ten identical bordered boxes stacked down a page gave nothing hierarchy —
+   they all shouted equally, so none of them was read. A row answers most
+   questions without being opened at all. */
+
+.group + .group {
+  margin-top: 1.35rem;
+}
+
+.group__head {
+  margin: 0 0 0.5rem 0.15rem;
+  font-size: 0.75rem;
+  font-weight: 640;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.group__empty {
+  color: var(--ink-2);
+  margin-bottom: 0.8rem;
+}
+
+.rows {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+/* The hairline starts past the icon, so the column of marks reads as one
+   run rather than being chopped by full-width rules. */
+.row + .row > .row__d > .row__head::before {
+  content: '';
+  position: absolute;
+  left: 3.35rem;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: var(--line);
+}
+
+.row__head {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.7rem var(--pad);
+  min-height: 56px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.row__head::-webkit-details-marker {
+  display: none;
+}
+
+.row__icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--essential-soft);
+}
+
+.row__icon svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: var(--essential);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.row__name {
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.row__value {
+  font-size: 1rem;
+  font-weight: 620;
+  white-space: nowrap;
+}
+
+.row__value--positive {
+  color: var(--positive);
+}
+
+.row__value--negative {
+  color: var(--negative);
+}
+
+.row__value--warn {
+  color: var(--essential);
+}
+
+/* The chevron is the affordance the whole pattern rests on, so it is drawn
+   rather than left to the browser's default triangle. */
+.row__head::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--ink-3);
+  border-bottom: 2px solid var(--ink-3);
+  transform: rotate(45deg) translate(-2px, -2px);
+  transition: transform 160ms ease;
+}
+
+.row__d[open] > .row__head::after {
+  transform: rotate(-135deg) translate(-2px, -2px);
+}
+
+.row__body {
+  padding: 0.2rem var(--pad) 1rem;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.detail__when {
+  margin-bottom: 0.6rem;
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+}
+
+/* Inside a row body the hero maths is on a light ground, not the dark card it
+   was written for. */
+.row__body .hero__maths,
+.row__body .hero__week {
+  color: var(--ink-2);
+}
+
+.row__body .disclosure {
+  border-top-color: var(--line);
+}
+
+.row__body .disclosure > summary {
+  color: var(--ink-2);
+}
+
+.row__body .disclosure > summary::before {
+  color: var(--ink-3);
+}
