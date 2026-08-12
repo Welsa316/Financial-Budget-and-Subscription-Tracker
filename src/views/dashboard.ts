@@ -188,22 +188,96 @@ function balanceSection(account: AccountRow, trustworthy: boolean): string {
 
 // --- 3. Next up -----------------------------------------------------------
 
-function nextUpSection(soonest: CommitmentStatus | null): string {
-  if (!soonest || !soonest.nextDueDate) return '';
+/**
+ * Everything due in the next thirty days.
+ *
+ * The single "Next up" charge answered "what is next" but not "what is going
+ * out before Friday", which is the question that decides whether this week's
+ * money is actually spendable. The dates were already computed for every
+ * commitment and all but one thrown away.
+ */
+function upcomingSection(data: DashboardViewData): string {
+  const items = data.upcoming;
+  if (items.length === 0) return '';
+
+  const total = items.reduce((sum, item) => sum + item.expectedCents, 0);
+  const anyVariable = items.some((item) => item.variableAmount);
+
   return `      <section class="card card--next">
-        <h2 class="card__title">Next up</h2>
-        <div class="next">
-          <div class="next__main">
-            <span class="next__name">${esc(soonest.name)}</span>
-            <span class="next__when">${esc(formatDayMonth(soonest.nextDueDate))} &middot; ${esc(
-              relativeDays(soonest.daysUntilDue ?? 0),
-            )}</span>
-          </div>
-          <span class="next__amount num">${esc(moneyAbs(soonest.expectedCents))}${
-            soonest.variableAmount ? '+' : ''
-          }</span>
+        <div class="hero__top">
+          <h2 class="card__title">Due in the next 30 days</h2>
+          <span class="hero__when num">${esc(moneyAbs(total))}${anyVariable ? '+' : ''}</span>
         </div>
-        <p class="card__hint card__hint--left">Projected from the last charge, rolled forward.</p>
+        <ul class="due">
+          ${items
+            .map(
+              (item) => `<li class="due__row">
+            <span class="due__main">
+              <span class="due__name">${esc(item.name)}</span>
+              <span class="due__when">${esc(formatDayMonth(item.nextDueDate!))} &middot; ${esc(
+                relativeDays(item.daysUntilDue ?? 0),
+              )}</span>
+            </span>
+            <span class="due__amount num">${esc(moneyAbs(item.expectedCents))}${
+              item.variableAmount ? '+' : ''
+            }</span>
+          </li>`,
+            )
+            .join('\n          ')}
+        </ul>
+        <p class="card__hint card__hint--left">
+          Projected from the day each one has actually billed on, rolled forward.
+        </p>
+      </section>`;
+}
+
+/**
+ * Income against what is already spoken for — the one number that says whether
+ * the commitments total is a lot or not.
+ */
+function shapeSection(data: DashboardViewData): string {
+  const { shape, totals } = data;
+  if (shape.sampleMonths === 0) return '';
+
+  const overcommitted = shape.freeCents < 0;
+
+  return `      <section class="card">
+        <h2 class="card__title">A typical month</h2>
+        <p class="figure ${overcommitted ? 'figure--negative' : ''}">${esc(
+          money(shape.freeCents),
+        )}</p>
+        <p class="card__lede">
+          left after everything already committed, on a median month of
+          <span class="num">${esc(money(shape.incomeCents))}</span>.
+        </p>
+
+        <div class="split" role="img" aria-label="Committed ${shape.committedPercent}% of a typical month's income">
+          <span class="split__bills w-${shape.committedPercent}"></span>
+          <span class="split__disc w-${100 - shape.committedPercent}"></span>
+        </div>
+        <div class="split__legend">
+          <span><i class="swatch swatch--bills"></i>Committed <b class="num">${esc(
+            moneyAbs(shape.committedCents),
+          )}</b></span>
+          <span><i class="swatch swatch--disc"></i>Everything else <b class="num">${esc(
+            money(shape.freeCents),
+          )}</b></span>
+        </div>
+
+        <dl class="stats">
+          <div class="stats__row"><dt>Essentials</dt><dd class="num">${esc(
+            moneyAbs(totals.essentialsPerMonthCents),
+          )}</dd></div>
+          <div class="stats__row"><dt>Subscriptions</dt><dd class="num">${esc(
+            moneyAbs(totals.subscriptionsPerMonthCents),
+          )}</dd></div>
+        </dl>
+        <p class="card__hint card__hint--left">
+          Median of ${shape.sampleMonths} complete month${
+            shape.sampleMonths === 1 ? '' : 's'
+          }, not the average — one good month should not
+          set an expectation you cannot count on.
+        </p>
       </section>`;
 }
 
@@ -674,7 +748,7 @@ ${banners}
 ${paycheckSection(data)}
 ${reviewSection(data)}
 ${data.accounts.map((account) => balanceSection(account, trustworthy)).join('\n')}
-${nextUpSection(data.soonest)}
+${shapeSection(data)}\n${upcomingSection(data)}
 ${commitmentsSection(data)}
 ${spendingSection(data)}
 

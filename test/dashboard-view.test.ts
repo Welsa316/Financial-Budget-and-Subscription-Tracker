@@ -2,8 +2,8 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { classifyOne, type ClassifiableTransaction, type Classified } from '../src/classify.js';
 import { buildPaycheckView } from '../src/budget.js';
-import { buildCommitments, nextUp, totalCommitments } from '../src/commitments.js';
-import { buildSpending } from '../src/dashboard.js';
+import { buildCommitments, nextUp, totalCommitments, upcoming } from '../src/commitments.js';
+import { buildSpending, monthlyShape } from '../src/dashboard.js';
 import { dashboardBody, type DashboardViewData } from '../src/views/dashboard.js';
 import { getRules } from '../src/rules.js';
 import { normalizeDescription, toCents } from '../src/normalize.js';
@@ -44,6 +44,8 @@ function render(
     commitments,
     totals: totalCommitments(commitments),
     soonest: nextUp(commitments),
+    upcoming: upcoming(commitments),
+    shape: monthlyShape(transactions, totalCommitments(commitments), TODAY),
     spending: buildSpending(transactions, TODAY),
     recent: transactions,
     recentSort: 'date',

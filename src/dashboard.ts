@@ -5,6 +5,7 @@ import {
   buildCommitments,
   nextUp,
   totalCommitments,
+  upcoming,
   type CommitmentStatus,
   type CommitmentTotals,
 } from './commitments.js';
@@ -42,12 +43,34 @@ export type RecentSort = 'date' | 'place';
 
 export const RECENT_LIMITS: Record<RecentSort, number> = { date: 25, place: 100 };
 
+/**
+ * Income against what is already spoken for.
+ *
+ * The commitments total was being computed and shown on its own, which says
+ * how much goes out but not whether that is a lot. Against income it becomes
+ * the only number that matters: what is left over before any of the week's
+ * spending has happened.
+ */
+export interface MonthlyShape {
+  /** Typical month's income, measured rather than budgeted. */
+  incomeCents: number;
+  committedCents: number;
+  freeCents: number;
+  /** Share of income already promised, 0-100. */
+  committedPercent: number;
+  /** How many complete months the income figure is drawn from. */
+  sampleMonths: number;
+}
+
 export interface DashboardModel {
   today: string;
   paycheck: PaycheckView;
   commitments: CommitmentStatus[];
   totals: CommitmentTotals;
   soonest: CommitmentStatus | null;
+  /** Everything due in the next 30 days, soonest first. */
+  upcoming: CommitmentStatus[];
+  shape: MonthlyShape;
   spending: SpendingBreakdown;
   recent: Classified[];
   recentSort: RecentSort;
@@ -263,6 +286,51 @@ export function needsReview(
   );
 }
 
+/**
+ * A typical month, measured against what is already committed.
+ *
+ * The median, not the average: income here is freelance, tutoring and DoorDash,
+ * so one unusually good month drags an average somewhere you cannot count on.
+ * The point of this number is what you can rely on, which is the middle month
+ * rather than the mean of a lumpy set.
+ *
+ * Whole months only. A window that starts or ends mid-month contributes a half
+ * month of income and would read as a lean one.
+ */
+export function monthlyShape(
+  classified: Classified[],
+  totals: CommitmentTotals,
+  today = toYmd(),
+): MonthlyShape {
+  const dated = classified.filter((transaction) => transaction.classification === 'income');
+  const months = new Map<string, number>();
+  for (const transaction of dated) {
+    const month = transaction.date.slice(0, 7);
+    months.set(month, (months.get(month) ?? 0) + transaction.amountCents);
+  }
+
+  // The month in progress has not finished earning yet.
+  months.delete(today.slice(0, 7));
+
+  // The earliest month is only partial unless history happens to begin on the
+  // 1st, and there is no way to tell from transactions alone — so drop it.
+  const ordered = [...months.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  if (ordered.length > 1) ordered.shift();
+
+  const amounts = ordered.map(([, cents]) => cents).filter((cents) => cents > 0);
+  const incomeCents = amounts.length === 0 ? 0 : median(amounts);
+  const committedCents = totals.totalPerMonthCents;
+
+  return {
+    incomeCents,
+    committedCents,
+    freeCents: incomeCents - committedCents,
+    committedPercent:
+      incomeCents <= 0 ? 0 : Math.min(100, Math.round((committedCents / incomeCents) * 100)),
+    sampleMonths: amounts.length,
+  };
+}
+
 function summarise(transactions: Classified[], limit: number): SpendingSlice[] {
   const byLabel = new Map<string, SpendingSlice>();
   for (const transaction of transactions) {
@@ -336,6 +404,8 @@ export function buildDashboard(
     commitments,
     totals: totalCommitments(commitments),
     soonest: nextUp(commitments),
+    upcoming: upcoming(commitments),
+    shape: monthlyShape(classified, totalCommitments(commitments)),
     spending: buildSpending(classified, today),
     // Always the most recent N; "place" changes how they are grouped for
     // reading, not which transactions you are looking at.
