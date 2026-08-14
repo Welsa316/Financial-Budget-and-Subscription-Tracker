@@ -279,3 +279,114 @@ describe('healing imported twins of API rows', () => {
     assert.equal(dedupeTwins(db, 'sf_a'), 0, 'idempotent');
   });
 });
+
+/**
+ * Same date + same amount + "similar" wording is not proof of the same
+ * charge. These pairs are lifted from the real statements: two different
+ * shops that both took $1.09 on Jun 25, and two Zelles to the same person
+ * differing only by reference. Claiming loosely deleted a genuine charge
+ * and left a duplicate of its neighbour - a normal-looking sync, wrong data.
+ */
+describe('never delete a charge on a guess', () => {
+  const wipe = (): void => {
+    db.exec('DELETE FROM transactions; DELETE FROM accounts; DELETE FROM overrides;');
+  };
+
+  it('keeps two different shops that took the same amount on the same day', () => {
+    wipe();
+    seedAccount('sf_a', 100, '2026-08-13T00:00:00.000Z');
+    // The statement holds both real charges.
+    seedTxn('sf_a', 'imp_ck', '2026-06-25', -109, 'circle k 07238 kenner la card 7975', { source: 'import' });
+    seedTxn('sf_a', 'imp_exx', '2026-06-25', -109, 'exxon circle k 07669 metairie la card 7975', { source: 'import' });
+    // The API returns only ONE of them, worded its own way.
+    seedTxn('sf_a', 'api_ck', '2026-06-25', -109, 'circle k 07238 kenner la card 7975');
+
+    const removed = dedupeTwins(db, 'sf_a');
+    assert.equal(removed, 1, 'exactly the true duplicate goes');
+    const left = db
+      .prepare(`SELECT normalized_description FROM transactions ORDER BY id`)
+      .all() as Array<{ normalized_description: string }>;
+    const texts = left.map((r) => r.normalized_description);
+    assert.equal(texts.length, 2, 'two real charges survive');
+    assert.ok(
+      texts.some((t) => t.includes('exxon')),
+      `the Exxon charge must survive - got ${JSON.stringify(texts)}`,
+    );
+  });
+
+  it('refuses to pair two same-day transfers that differ only by reference', () => {
+    wipe();
+    seedAccount('sf_b', 100, '2026-08-13T00:00:00.000Z');
+    seedTxn('sf_b', 'imp1', '2026-04-24', -2000, 'zelle payment to walid jpm99cefa2ue', { source: 'import' });
+    seedTxn('sf_b', 'imp2', '2026-04-24', -2000, 'zelle payment to walid jpm99ceaw88o', { source: 'import' });
+    seedTxn('sf_b', 'api1', '2026-04-24', -2000, 'zelle payment to walid jpm99cefa2ue');
+
+    const removed = dedupeTwins(db, 'sf_b');
+    assert.equal(removed, 1, 'only the exact-reference match is a duplicate');
+    const refs = (
+      db.prepare(`SELECT normalized_description FROM transactions`).all() as Array<{
+        normalized_description: string;
+      }>
+    ).map((r) => r.normalized_description);
+    assert.ok(
+      refs.some((t) => t.includes('jpm99ceaw88o')),
+      `the second real transfer must survive - got ${JSON.stringify(refs)}`,
+    );
+  });
+
+  it('still removes an unambiguous re-worded duplicate', () => {
+    wipe();
+    seedAccount('sf_c', 100, '2026-08-13T00:00:00.000Z');
+    seedTxn('sf_c', 'imp', '2026-06-10', -4200, 'card purchase 06/10 rouses market 12 new orleans la', { source: 'import' });
+    seedTxn('sf_c', 'api', '2026-06-10', -4200, 'rouses market 12 new orleans la card 7975');
+    assert.equal(dedupeTwins(db, 'sf_c'), 1, 'a lone candidate may still match on similarity');
+  });
+});
+
+describe('bank reference tokens settle the ambiguous cases', () => {
+  it('will not delete a transfer whose reference differs, even as the lone candidate', () => {
+    db.exec('DELETE FROM transactions; DELETE FROM accounts; DELETE FROM overrides;');
+    seedAccount('sf_r', 100, '2026-08-13T00:00:00.000Z');
+    // Two real $20 transfers on the same day; the API returns only one, and
+    // the import copy left over is the OTHER one.
+    seedTxn('sf_r', 'imp', '2026-04-24', -2000, 'zelle payment to walid jpm99ceaw88o', { source: 'import' });
+    seedTxn('sf_r', 'api', '2026-04-24', -2000, 'zelle payment to walid jpm99cefa2ue');
+
+    assert.equal(dedupeTwins(db, 'sf_r'), 0, 'different references are different charges');
+    assert.equal(
+      (db.prepare('SELECT COUNT(*) AS n FROM transactions').get() as { n: number }).n,
+      2,
+      'both real transfers survive',
+    );
+  });
+
+  it('still dedupes when the reference agrees but the wording does not', () => {
+    db.exec('DELETE FROM transactions; DELETE FROM accounts; DELETE FROM overrides;');
+    seedAccount('sf_s', 100, '2026-08-13T00:00:00.000Z');
+    seedTxn('sf_s', 'imp', '2026-04-24', -2000, 'card purchase zelle payment to walid jpm99cefa2ue', { source: 'import' });
+    seedTxn('sf_s', 'api', '2026-04-24', -2000, 'zelle payment to walid jpm99cefa2ue card 7975');
+    assert.equal(dedupeTwins(db, 'sf_s'), 1, 'the same reference is the same charge');
+  });
+});
+
+describe('boilerplate does not make two shops look alike', () => {
+  it('keeps a charge whose only "twin" is a different shop for the same amount', () => {
+    db.exec('DELETE FROM transactions; DELETE FROM accounts; DELETE FROM overrides;');
+    seedAccount('sf_x', 100, '2026-08-13T00:00:00.000Z');
+    // The real Jun 25 pair: the API returned the Kenner store, and the
+    // leftover import row is the Metairie one - a DIFFERENT charge, and the
+    // sole candidate, so ordering cannot save it. Only the fact that
+    // "card 7975" no longer counts as shared meaning does.
+    seedTxn('sf_x', 'imp', '2026-06-25', -109, 'exxon circle k 07669 metairie la card 7975', { source: 'import' });
+    seedTxn('sf_x', 'api', '2026-06-25', -109, 'circle k 07238 kenner la card 7975');
+
+    assert.equal(dedupeTwins(db, 'sf_x'), 0, 'different shops are different charges');
+    const left = (
+      db.prepare('SELECT normalized_description FROM transactions').all() as Array<{
+        normalized_description: string;
+      }>
+    ).map((r) => r.normalized_description);
+    assert.equal(left.length, 2, 'both survive');
+    assert.ok(left.some((t) => t.includes('exxon')), `Exxon kept - got ${JSON.stringify(left)}`);
+  });
+});

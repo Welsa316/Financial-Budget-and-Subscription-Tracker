@@ -78,8 +78,47 @@ const bucketKey = (row: Row): string => `${row.date}|${row.amount_cents}`;
  */
 const fold = (text: string): string => text.toLowerCase().replace(/\s+/g, ' ').trim();
 
+/**
+ * Strips the boilerplate every card line carries before similarity is judged.
+ *
+ * "card 7975" and "card purchase" appear on every card transaction, so they
+ * counted as shared tokens for charges with nothing in common: `circle k
+ * 07238 kenner` scored 0.6 against `exxon circle k 07669 metairie` - two
+ * different shops - purely on `circle`, `card` and `7975`. Removing the
+ * boilerplate drops that to 0.33 while leaving genuine restatements of the
+ * same merchant (a statement line versus the API's wording) well above the
+ * threshold.
+ */
+const distinctive = (text: string): string =>
+  fold(text)
+    .replace(/\bcard \d{4}\b/g, ' ')
+    .replace(/\bcard purchase\b/g, ' ')
+    .replace(/\brecurring\b/g, ' ')
+    .replace(/\bwith pin\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
 const sameName = (a: Account, b: Account): boolean =>
   !!a.name && !!b.name && a.name.trim().toLowerCase() === b.name.trim().toLowerCase();
+
+/**
+ * Bank reference tokens: long mixed letter-and-digit runs like `jpm99cefa2ue`
+ * or `rgn020w5xa1y`. Two transfers to the same person, on the same day, for
+ * the same amount differ ONLY by this - so when both lines carry references
+ * and none of them agree, the lines are different charges no matter how
+ * similar the words around them read.
+ */
+const REFERENCE = /^(?=[a-z0-9]*[a-z])(?=[a-z0-9]*\d)[a-z0-9]{8,}$/;
+
+function referencesConflict(a: string, b: string): boolean {
+  const refs = (text: string): Set<string> =>
+    new Set(text.split(' ').filter((token) => REFERENCE.test(token)));
+  const left = refs(a);
+  const right = refs(b);
+  if (left.size === 0 || right.size === 0) return false;
+  for (const token of left) if (right.has(token)) return false;
+  return true;
+}
 
 /** One-to-one twin claiming within a date|amount bucket, by similarity. */
 class TwinPool {
@@ -94,16 +133,54 @@ class TwinPool {
     }
   }
 
+  /**
+   * Exact wording first; loose similarity only when it cannot be wrong.
+   *
+   * Same date, same amount and "similar" text is NOT proof of the same
+   * charge. In the real statements, `circle k 07238 kenner` and `exxon
+   * circle k 07669 metairie` are two different shops that both took $1.09
+   * on the same day, and two Zelles to the same person differ only in their
+   * reference. Claiming by similarity while several candidates were open
+   * paired a row with the wrong twin, which deleted a genuine charge and
+   * left a duplicate of its neighbour - a normal-looking sync with wrong
+   * data. So: an exact match may always claim, and a similar-only match may
+   * claim solely when it is the one remaining candidate in the bucket.
+   */
   claim(row: Row): Row | null {
-    for (const candidate of this.buckets.get(bucketKey(row)) ?? []) {
-      if (candidate.claimed) continue;
-      if (!descriptionsSimilar(fold(row.normalized_description), fold(candidate.normalized_description))) {
-        continue;
-      }
-      candidate.claimed = true;
-      return candidate;
+    const candidates = (this.buckets.get(bucketKey(row)) ?? []).filter((c) => !c.claimed);
+    if (candidates.length === 0) return null;
+    const mine = fold(row.normalized_description);
+
+    const exact = candidates.find((c) => fold(c.normalized_description) === mine);
+    if (exact) {
+      exact.claimed = true;
+      return exact;
     }
-    return null;
+
+    if (candidates.length > 1) return null; // Ambiguous: refuse to guess.
+    const only = candidates[0]!;
+    const theirs = distinctive(only.normalized_description);
+    const ours = distinctive(mine);
+    if (referencesConflict(ours, theirs)) return null;
+    if (!descriptionsSimilar(ours, theirs)) return null;
+    only.claimed = true;
+    return only;
+  }
+
+  /**
+   * Rows in the order they should claim: exact-wording matches go first, so
+   * a loose match can never take a twin that some later row matches exactly.
+   */
+  static orderForClaiming(rows: Row[], pool: TwinPool): Row[] {
+    const exactFirst: Row[] = [];
+    const rest: Row[] = [];
+    for (const row of rows) {
+      const bucket = pool.buckets.get(bucketKey(row)) ?? [];
+      const mine = fold(row.normalized_description);
+      if (bucket.some((c) => fold(c.normalized_description) === mine)) exactFirst.push(row);
+      else rest.push(row);
+    }
+    return [...exactFirst, ...rest];
   }
 
   /** Non-destructive count of how many of `rows` could claim a twin. */
@@ -113,7 +190,7 @@ class TwinPool {
       [...this.buckets.entries()].map(([k, v]) => [k, v.map((row) => ({ ...row }))]),
     );
     let matches = 0;
-    for (const row of rows) if (scratch.claim(row)) matches += 1;
+    for (const row of TwinPool.orderForClaiming(rows, scratch)) if (scratch.claim(row)) matches += 1;
     return matches;
   }
 }
@@ -211,7 +288,7 @@ export function reconcileReplacedAccounts(
 
     const migrate = db.transaction(() => {
       const counts = { duplicatesRemoved: 0, historyMigrated: 0, overridesMoved: 0, pendingsDropped: 0 };
-      for (const row of orphanRows) {
+      for (const row of TwinPool.orderForClaiming(orphanRows, survivor!.pool)) {
         const twin = survivor!.pool.claim(row);
         if (twin) {
           if (row.settled_from) carrySettledFrom.run(row.settled_from, twin.id);
@@ -291,7 +368,7 @@ export function dedupeImportedTwins(db: Database, accountId: string): number {
 
   let removed = 0;
   db.transaction(() => {
-    for (const row of imports) {
+    for (const row of TwinPool.orderForClaiming(imports, pool)) {
       const twin = pool.claim(row);
       if (!twin) continue;
       moveOverride.run(twin.id, row.id);
