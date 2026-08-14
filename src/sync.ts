@@ -4,6 +4,7 @@ import { getDb } from './db.js';
 import { getAccessUrl, markDisconnected, clearDisconnection } from './enrollment.js';
 import { dedupeKey, descriptionsSimilar, normalizeDescription, toCents } from './normalize.js';
 import { addDays, toYmd } from './time.js';
+import { reconcileReplacedAccounts } from './reconcile.js';
 import {
   SimpleFinError,
   collectErrors,
@@ -448,6 +449,27 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
       });
       reconcile(stalePending);
       sweepStalePending(returnedIds);
+    }
+
+    // A relinked bridge issues a new id for the same bank account, leaving
+    // the old one orphaned with every charge duplicated under the new id and
+    // a frozen balance the wallet keeps showing. Merge such orphans into the
+    // account that replaced them. Only on a clean response: an account
+    // missing because SimpleFIN errored is not an orphan, and merging on the
+    // strength of a partial answer is how history disappears.
+    if (warnings.length === 0 && outcome.accounts.length > 0) {
+      const repaired = reconcileReplacedAccounts(
+        db,
+        outcome.accounts.map((account) => account.id),
+      );
+      if (repaired.merged.length > 0) {
+        console.warn(
+          `[sync] merged replaced account(s) ${repaired.merged.join(', ')}: ` +
+            `${repaired.duplicatesRemoved} duplicates removed, ` +
+            `${repaired.historyMigrated} rows of history migrated, ` +
+            `${repaired.overridesMoved} overrides moved`,
+        );
+      }
     }
 
     // SimpleFIN reports a broken bank link in errlist alongside HTTP 200, so a
