@@ -454,10 +454,15 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
     // A relinked bridge issues a new id for the same bank account, leaving
     // the old one orphaned with every charge duplicated under the new id and
     // a frozen balance the wallet keeps showing. Merge such orphans into the
-    // account that replaced them. Only on a clean response: an account
-    // missing because SimpleFIN errored is not an orphan, and merging on the
-    // strength of a partial answer is how history disappears.
-    if (warnings.length === 0 && outcome.accounts.length > 0) {
+    // account that replaced them.
+    //
+    // This deliberately does NOT wait for a warning-free response. The first
+    // version did, and on a connection that always carries some errlist noise
+    // the repair never ran at all. The protection against merging an account
+    // that is merely erroring is the content-overlap requirement itself: an
+    // account missing from the response has no twin of its history under
+    // another account, so no survivor is found and it is left alone.
+    if (outcome.accounts.length > 0) {
       const repaired = reconcileReplacedAccounts(
         db,
         outcome.accounts.map((account) => account.id),

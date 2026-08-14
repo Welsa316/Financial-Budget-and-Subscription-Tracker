@@ -44,8 +44,14 @@ interface Row {
   normalized_description: string;
 }
 
+/**
+ * Case- and whitespace-insensitive on the description: the orphan's rows were
+ * normalized by whatever version of the normalizer ran months ago, and a
+ * cosmetic change to it since then must not block the merge. Date and amount
+ * carry the identity; the description guards against coincidence.
+ */
 const contentKey = (row: Row): string =>
-  `${row.date}|${row.amount_cents}|${row.normalized_description}`;
+  `${row.date}|${row.amount_cents}|${row.normalized_description.toLowerCase().replace(/\s+/g, ' ').trim()}`;
 
 export function reconcileReplacedAccounts(
   db: Database,

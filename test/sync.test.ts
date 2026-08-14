@@ -619,3 +619,78 @@ describe('sync: failure handling', () => {
     assert.equal(getDisconnection(), null);
   });
 });
+
+/**
+ * The production incident, end to end: a relink orphaned the old account with
+ * every charge duplicated, AND the connection still carried errlist noise.
+ * The first reconcile guard required a warning-free response, so on that
+ * connection the repair never ran. The content-overlap requirement is the
+ * real protection: an account that is merely erroring has no twin of its
+ * history under another account, so it is never merged.
+ */
+describe('reconciling through the real sync path', () => {
+  it('merges a relink orphan even when the response carries warnings', async () => {
+    resetDb();
+    const db = getDb();
+
+    // The pre-relink world: the old account and its charges.
+    db.prepare(
+      `INSERT INTO accounts (id, name, institution, last_four, type, subtype, currency,
+         available_cents, ledger_cents, balance_updated_at, raw, created_at, updated_at)
+       VALUES ('sf_acc_old', 'Chase Total Checking', NULL, NULL, 'depository', 'checking',
+         'USD', 215, 215, '2026-07-30T00:00:00.000Z', '{}', datetime('now'), datetime('now'))`,
+    ).run();
+    const seed = db.prepare(
+      `INSERT INTO transactions (id, account_id, date, amount_cents, description,
+         normalized_description, merchant, status, source, dedupe_key, raw, first_seen_at, updated_at)
+       VALUES (?, 'sf_acc_old', ?, ?, ?, ?, NULL, 'posted', 'simplefin', ?, '{}',
+         datetime('now'), datetime('now'))`,
+    );
+    // Mixed case on purpose: these rows were normalized by an older pass,
+    // and cosmetic normalizer drift must not block the merge.
+    seed.run('sf_acc_old_a', agoYmd(3), -795, 'CIRCLE K # 07238', 'circle k 07238', 'ka');
+    seed.run('sf_acc_old_b', agoYmd(3), -330, 'CIRCLE K # 07238', 'Circle K  07238', 'kb');
+    seed.run('sf_acc_old_c', agoYmd(5), -438, 'SONIC DRIVE IN', 'sonic drive in', 'kc');
+    seed.run('sf_acc_old_d', agoYmd(6), -405, 'SONIC DRIVE IN', 'Sonic Drive In', 'kd');
+    seed.run('sf_acc_old_e', agoYmd(7), -382, 'CIRCLE K # 07238', 'circle k 07238', 'ke');
+    // History beyond what the new connection returns.
+    seed.run('sf_acc_old_f', '2026-01-10', -4200, 'ROUSES MARKET', 'Rouses Market', 'kf');
+
+    // The relinked connection: NEW account id, same charges again, plus noise.
+    mock.state.accounts = [
+      { id: 'acc_new', name: 'Chase Total Checking', balance: '842.13' },
+    ];
+    mock.state.transactions = [
+      { id: 'n1', account_id: 'acc_new', amount: '-7.95', posted: agoSec(3), description: 'CIRCLE K # 07238' },
+      { id: 'n2', account_id: 'acc_new', amount: '-3.30', posted: agoSec(3), description: 'CIRCLE K # 07238' },
+      { id: 'n3', account_id: 'acc_new', amount: '-4.38', posted: agoSec(5), description: 'SONIC DRIVE IN' },
+      { id: 'n4', account_id: 'acc_new', amount: '-4.05', posted: agoSec(6), description: 'SONIC DRIVE IN' },
+      { id: 'n5', account_id: 'acc_new', amount: '-3.82', posted: agoSec(7), description: 'CIRCLE K # 07238' },
+    ];
+    mock.state.errlist = [{ code: 'NOISE', msg: 'Chase: connection needs attention' }];
+
+    const result = await runSync('manual');
+    assert.equal(result.status, 'ok');
+    assert.ok(result.warnings.length > 0, 'the warning really was present');
+
+    const accounts = db.prepare('SELECT id FROM accounts ORDER BY id').all() as Array<{ id: string }>;
+    assert.equal(accounts.length, 1, 'the orphan merged despite the warning');
+
+    const dupes = db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM (
+           SELECT date, amount_cents, normalized_description, COUNT(*) AS c
+           FROM transactions GROUP BY 1, 2, 3 HAVING c > 1)`,
+      )
+      .get() as { n: number };
+    assert.equal(dupes.n, 0, 'no duplicated content remains');
+
+    const history = db
+      .prepare(`SELECT account_id FROM transactions WHERE id = 'sf_acc_old_f'`)
+      .get() as { account_id: string } | undefined;
+    assert.ok(history, 'old history survived');
+    assert.notEqual(history!.account_id, 'sf_acc_old', 'and was re-parented');
+
+    mock.state.errlist = [];
+  });
+});
