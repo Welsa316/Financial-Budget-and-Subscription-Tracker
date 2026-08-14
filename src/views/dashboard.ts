@@ -20,6 +20,8 @@ export interface AccountRow {
   institution: string | null;
   available_cents: number | null;
   ledger_cents: number | null;
+  /** When the bank last reported this balance - SimpleFIN's date, not ours. */
+  balance_updated_at: string | null;
 }
 
 export interface DashboardViewData extends DashboardModel {
@@ -29,6 +31,8 @@ export interface DashboardViewData extends DashboardModel {
   bankConnected: boolean;
   disconnection: { at: string; reason: string; kind: 'reconnect' | 'payment_required' } | null;
   syncStale: boolean;
+  /** Set to the last balance-report stamp when that report is days old. */
+  balanceStale: string | null;
   nextScheduled: string | null;
 }
 
@@ -198,6 +202,13 @@ function balanceDetail(account: AccountRow, trustworthy: boolean): string {
           ${
             gap !== null && gap !== 0
               ? `<div class="stats__row"><dt>Still pending</dt><dd class="num">${esc(moneyAbs(gap))}</dd></div>`
+              : ''
+          }
+          ${
+            account.balance_updated_at
+              ? `<div class="stats__row"><dt>Reported by the bank</dt><dd>${esc(
+                  formatStamp(account.balance_updated_at),
+                )}</dd></div>`
               : ''
           }
           <div class="stats__row"><dt>${esc(account.name)}</dt><dd>${esc(
@@ -1053,7 +1064,7 @@ export function dashboardBody(data: DashboardViewData): string {
   const syncWarning =
     data.lastSync?.status === 'ok' && data.lastSync.error ? data.lastSync.error : null;
 
-  const trustworthy = !data.disconnection && !data.syncStale && !syncWarning;
+  const trustworthy = !data.disconnection && !data.syncStale && !syncWarning && !data.balanceStale;
 
   const banners = `${
     data.disconnection
@@ -1095,6 +1106,23 @@ export function dashboardBody(data: DashboardViewData): string {
             ? `The last successful sync was ${esc(formatStamp(data.lastSync.finished_at))}.`
             : 'This has never synced successfully.'
         } These numbers may be out of date.</p>
+      </section>`
+      : ''
+  }${
+    // The sync clock cannot see this one: every sync suceeds, but SimpleFIN
+    // answers with the same old snapshot. That is what an expired Chase link
+    // at the bridge looks like, and without this banner the page stamps a
+    // weeks-old balance "synced this morning".
+    data.balanceStale && !data.disconnection && data.bankConnected
+      ? `<section class="card card--warn" role="alert">
+        <h2 class="card__title">The balance is not moving</h2>
+        <p class="card__body">
+          Chase last reported a balance ${esc(formatStamp(data.balanceStale))}.
+          Syncs are completing, but SimpleFIN keeps returning that same
+          snapshot &mdash; usually the Chase link inside SimpleFIN Bridge
+          needs signing in again. Relink it there, then sync.
+        </p>
+        <a class="btn btn--primary btn--block" href="/connect">Open the reconnect steps</a>
       </section>`
       : ''
   }${

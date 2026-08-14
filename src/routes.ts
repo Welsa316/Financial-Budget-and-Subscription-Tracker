@@ -37,6 +37,14 @@ export const router = Router();
 const STALE_AFTER_MS = 14 * 60 * 60 * 1000;
 
 /**
+ * A balance snapshot older than this while syncs keep succeeding means
+ * SimpleFIN is answering with the same stale data every time - which is what
+ * an expired Chase link at the bridge looks like from here. Two days covers
+ * four scheduled syncs; a healthy connection never leaves it that long.
+ */
+const BALANCE_STALE_AFTER_MS = 48 * 60 * 60 * 1000;
+
+/**
  * Where to send the browser after a successful login. Must stay on this site.
  *
  * Checking the string by hand is not enough: browsers normalise "\" to "/", so
@@ -320,6 +328,10 @@ router.post('/override', (req: Request, res: Response) => {
   res.redirect(from === 'review' ? '/#review-queue' : `/#txn-${encodeURIComponent(id)}`);
 });
 
+function connectedAndReporting(accounts: AccountRow[]): boolean {
+  return accounts.some((account) => account.balance_updated_at !== null);
+}
+
 router.get('/', (req: Request, res: Response) => {
   const db = getDb();
   const recentSort: RecentSort =
@@ -328,10 +340,26 @@ router.get('/', (req: Request, res: Response) => {
 
   const accounts = db
     .prepare(
-      `SELECT id, name, institution, available_cents, ledger_cents
+      `SELECT id, name, institution, available_cents, ledger_cents, balance_updated_at
        FROM accounts ORDER BY name`,
     )
     .all() as AccountRow[];
+
+  // The freshest balance report across accounts. The sync clock says whether
+  // WE ran; this says whether the bank actually told us anything new.
+  const newestBalance = accounts.reduce<string | null>(
+    (newest, account) =>
+      account.balance_updated_at && (!newest || account.balance_updated_at > newest)
+        ? account.balance_updated_at
+        : newest,
+    null,
+  );
+  const balanceStale =
+    connectedAndReporting(accounts) &&
+    newestBalance !== null &&
+    Date.now() - Date.parse(newestBalance) > BALANCE_STALE_AFTER_MS
+      ? newestBalance
+      : null;
 
   const lastSync = db
     .prepare(
@@ -355,6 +383,7 @@ router.get('/', (req: Request, res: Response) => {
       disconnection: getDisconnection(),
       nextScheduled: nextRun ? nextRun.toISOString() : null,
       syncStale: connected ? syncStale : false,
+      balanceStale: connected ? balanceStale : null,
     }),
   );
 });

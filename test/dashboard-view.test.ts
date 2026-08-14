@@ -57,6 +57,7 @@ function render(
     bankConnected: true,
     disconnection: null,
     syncStale: false,
+    balanceStale: null,
     nextScheduled: null,
     ...overrides,
   });
@@ -572,6 +573,7 @@ describe('the card face', () => {
             institution: null,
             available_cents: 84213,
             ledger_cents: 84213,
+            balance_updated_at: null,
           },
         ],
       },
@@ -633,4 +635,43 @@ describe('markup balance', () => {
       }
     });
   }
+});
+
+/**
+ * The sync clock cannot see a bridge whose Chase link expired: every sync
+ * succeeds and returns the same old snapshot. The live site sat on a $2.15
+ * balance stamped "synced this morning" for weeks before this signal existed.
+ */
+describe('the balance-age warning', () => {
+  const txns = [make('DOORDASH INC PAYMENT', '900.00', '2026-08-08')];
+
+  it('banners when the bank stopped reporting, and distrusts the numbers', () => {
+    const html = render({ balanceStale: '2026-07-30T02:00:00.000Z' }, txns);
+    assert.match(html, /The balance is not moving/);
+    assert.match(html, /Chase last reported a balance/);
+    assert.match(html, /href="\/connect"/, 'points at the reconnect steps');
+  });
+
+  it('stays quiet while the bank is actually reporting', () => {
+    assert.doesNotMatch(render({}, txns), /The balance is not moving/);
+  });
+
+  it('prints the report date on the wallet as a fact', () => {
+    const html = render(
+      {
+        accounts: [
+          {
+            id: 'a',
+            name: 'TOTAL CHECKING',
+            institution: null,
+            available_cents: 215,
+            ledger_cents: 215,
+            balance_updated_at: '2026-07-30T02:00:00.000Z',
+          },
+        ],
+      },
+      txns,
+    );
+    assert.match(html, /Reported by the bank/);
+  });
 });
