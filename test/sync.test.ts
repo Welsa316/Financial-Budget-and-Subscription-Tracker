@@ -694,3 +694,41 @@ describe('reconciling through the real sync path', () => {
     mock.state.errlist = [];
   });
 });
+
+describe('settling never replaces a manual classification', () => {
+  it('keeps the posted row override when a pending with its own override settles onto it', async () => {
+    resetDb();
+    const db = getDb();
+    mock.state.accounts = [
+      { id: 'acc_1', name: 'Chase Total Checking', balance: '500.00' },
+    ];
+    // First sync: a pending hold arrives; the user classifies it.
+    mock.state.transactions = [
+      { id: 'p1', account_id: 'acc_1', amount: '-50.00', posted: 0, transacted_at: agoSec(2), description: 'SONIC DRIVE IN', pending: true },
+    ];
+    mock.state.errlist = [];
+    await runSync('manual');
+    db.prepare(
+      `INSERT INTO overrides (transaction_id, classification, created_at) VALUES ('sf_acc_1_p1', 'discretionary', datetime('now'))`,
+    ).run();
+
+    // The posted row's override exists BEFORE the sync that settles the
+    // pending onto it - both classifications collide at the moment of the
+    // move, which is the case OR REPLACE silently got wrong.
+    db.prepare(
+      `INSERT INTO overrides (transaction_id, classification, created_at) VALUES ('sf_acc_1_t1', 'bill', datetime('now'))`,
+    ).run();
+    mock.state.transactions = [
+      { id: 't1', account_id: 'acc_1', amount: '-58.00', posted: agoSec(1), description: 'SONIC DRIVE IN' },
+    ];
+    await runSync('manual');
+    const kept = db
+      .prepare(`SELECT classification FROM overrides WHERE transaction_id = 'sf_acc_1_t1'`)
+      .get() as { classification: string } | undefined;
+    assert.equal(kept?.classification, 'bill', 'the hand-made posted classification wins');
+    const orphaned = db
+      .prepare(`SELECT COUNT(*) AS n FROM overrides o LEFT JOIN transactions t ON t.id = o.transaction_id WHERE t.id IS NULL`)
+      .get() as { n: number };
+    assert.equal(orphaned.n, 0, 'no override row left pointing at a deleted transaction');
+  });
+});

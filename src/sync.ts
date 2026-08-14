@@ -4,7 +4,7 @@ import { getDb } from './db.js';
 import { getAccessUrl, markDisconnected, clearDisconnection } from './enrollment.js';
 import { dedupeKey, descriptionsSimilar, normalizeDescription, toCents } from './normalize.js';
 import { addDays, toYmd } from './time.js';
-import { reconcileReplacedAccounts } from './reconcile.js';
+import { dedupeImportedTwins, reconcileReplacedAccounts } from './reconcile.js';
 import {
   SimpleFinError,
   collectErrors,
@@ -245,7 +245,11 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
        * holds on the strength of that is how data disappears.
        */
       const sweepStalePending = (stillReported: Set<string>): void => {
-        if (warnings.length > 0) return;
+        // Only this account's own health matters here: skip the sweep when
+        // the response carried warnings AND this account returned nothing -
+        // a globally-gated version left stale pendings unsweepable forever
+        // on a connection that always has some errlist noise.
+        if (warnings.length > 0 && stillReported.size === 0) return;
         const cutoff = addDays(toYmd(), -STALE_PENDING_DAYS);
         const abandoned = db
           .prepare(
@@ -299,9 +303,14 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
          WHERE source = 'import' AND account_id = ? AND date = ? AND amount_cents = ? AND id != ?`,
       );
       const deleteRow = db.prepare('DELETE FROM transactions WHERE id = ?');
+      // OR IGNORE, deliberately: if the posted row already carries its own
+      // manual override, the pending's override loses rather than replacing
+      // a classification made by hand. The leftover row is deleted with the
+      // pending, so nothing is orphaned either way.
       const moveOverride = db.prepare(
-        `UPDATE OR REPLACE overrides SET transaction_id = ? WHERE transaction_id = ?`,
+        `UPDATE OR IGNORE overrides SET transaction_id = ? WHERE transaction_id = ?`,
       );
+      const dropOverride = db.prepare('DELETE FROM overrides WHERE transaction_id = ?');
 
       const dates = fetched.map(transactionDate);
       const oldestFetched = dates.reduce((min, date) => (date < min ? date : min), dates[0]!);
@@ -323,6 +332,7 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
           for (const duplicate of candidates) {
             if (!descriptionsSimilar(normalized, duplicate.normalized_description)) continue;
             moveOverride.run(id, duplicate.id);
+            dropOverride.run(duplicate.id);
             deleteRow.run(duplicate.id);
           }
 
@@ -442,6 +452,7 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
               matchId,
             );
             moveOverride.run(matchId, pending.id);
+            dropOverride.run(pending.id);
             deleteRow.run(pending.id);
             pendingSettled += 1;
           }
@@ -472,8 +483,20 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
           `[sync] merged replaced account(s) ${repaired.merged.join(', ')}: ` +
             `${repaired.duplicatesRemoved} duplicates removed, ` +
             `${repaired.historyMigrated} rows of history migrated, ` +
-            `${repaired.overridesMoved} overrides moved`,
+            `${repaired.overridesMoved} overrides moved, ` +
+            `${repaired.pendingsDropped} dead pendings dropped`,
         );
+      }
+
+      // After the merge, so freshly re-parented statement rows are seen: any
+      // imported copy of an API row is the same charge and goes, healing the
+      // duplicates the exact-key era of the merge left in place.
+      let importTwinsRemoved = 0;
+      for (const account of outcome.accounts) {
+        importTwinsRemoved += dedupeImportedTwins(db, account.id);
+      }
+      if (importTwinsRemoved > 0) {
+        console.warn(`[sync] removed ${importTwinsRemoved} imported twin(s) of API rows`);
       }
     }
 
