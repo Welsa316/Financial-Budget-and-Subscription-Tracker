@@ -675,3 +675,33 @@ describe('the balance-age warning', () => {
     assert.match(html, /Reported by the bank/);
   });
 });
+
+/**
+ * The client's sync-on-open reads its state from these attributes; without
+ * them it must stay inert. The connected flag also goes dark during a
+ * disconnection, so auto-sync never hammers a link already known broken.
+ */
+describe('sync-on-open state attributes', () => {
+  const txns = [make('DOORDASH INC PAYMENT', '900.00', '2026-08-08')];
+
+  it('emits the last sync time and the connected flag', () => {
+    const html = render(
+      { lastSync: { finished_at: '2026-08-13T12:00:00.000Z', status: 'ok', error: null } },
+      txns,
+    );
+    const stamp = html.match(/<span class="topbar__stamp[^>]*id="sync-stamp"[\s\S]*?>/)![0]!;
+    assert.match(stamp, /data-finished-at="2026-08-13T12:00:00\.000Z"/);
+    assert.match(stamp, /data-connected="1"/);
+  });
+
+  it('drops the connected flag while disconnected', () => {
+    const html = render(
+      {
+        disconnection: { at: '2026-08-12T00:00:00.000Z', reason: 'x', kind: 'reconnect' },
+      },
+      txns,
+    );
+    const stamp = html.match(/<span class="topbar__stamp[^>]*id="sync-stamp"[\s\S]*?>/)![0]!;
+    assert.match(stamp, /data-connected=""/);
+  });
+});

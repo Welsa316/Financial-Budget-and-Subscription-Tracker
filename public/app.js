@@ -74,6 +74,75 @@
     window.addEventListener('scroll', applyScrollState, { passive: true });
   }
 
+  // --- Sync on open ---------------------------------------------------------
+  // The server syncs itself twice a day; this covers the moment that actually
+  // matters: opening the app. If the data is older than half an hour when the
+  // page loads - or when the installed app comes back to the foreground - a
+  // sync starts on its own. A reload only happens when it brought something
+  // new AND nothing has been touched yet; yanking the page out from under a
+  // thumb mid-scroll is worse than being one tap behind.
+  var stamp = document.getElementById('sync-stamp');
+  var AUTO_STALE_MS = 30 * 60 * 1000;
+  var AUTO_TIMEOUT_MS = 5 * 60 * 1000;
+  var autoRunning = false;
+  var touched = false;
+  ['pointerdown', 'scroll', 'keydown'].forEach(function (kind) {
+    window.addEventListener(kind, function () { touched = true; }, { once: true, passive: true });
+  });
+
+  function offerRefresh(count) {
+    if (!stamp) return;
+    stamp.textContent = 'Synced · ' + count + ' new — tap to update';
+    stamp.classList.add('topbar__stamp--fresh');
+    stamp.setAttribute('role', 'button');
+    stamp.setAttribute('tabindex', '0');
+    var go = function () { window.location.reload(); };
+    stamp.addEventListener('click', go);
+    stamp.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter' || event.key === ' ') go();
+    });
+  }
+
+  function autoPoll(startedAt) {
+    if (Date.now() - startedAt > AUTO_TIMEOUT_MS) { autoRunning = false; return; }
+    fetch('/api/sync-status', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.running) {
+          window.setTimeout(function () { autoPoll(startedAt); }, 2000);
+          return;
+        }
+        autoRunning = false;
+        if (!data.last || data.last.status === 'error') return; // quiet; banners own chronic failure
+        if (stamp && data.last.finished_at) stamp.dataset.finishedAt = data.last.finished_at;
+        var brought = data.last.transactions_upserted || 0;
+        if (brought > 0) {
+          if (touched) offerRefresh(brought);
+          else window.location.reload();
+        } else if (stamp) {
+          stamp.textContent = 'Synced just now';
+        }
+      })
+      .catch(function () { autoRunning = false; });
+  }
+
+  function maybeAutoSync() {
+    if (!stamp || stamp.dataset.connected !== '1' || autoRunning) return;
+    if (document.visibilityState === 'hidden') return;
+    var last = Date.parse(stamp.dataset.finishedAt || '');
+    if (isFinite(last) && Date.now() - last < AUTO_STALE_MS) return;
+    autoRunning = true;
+    fetch('/api/sync', { method: 'POST', credentials: 'same-origin' })
+      .then(function (response) {
+        if (!response.ok) { autoRunning = false; return; }
+        autoPoll(Date.now());
+      })
+      .catch(function () { autoRunning = false; });
+  }
+
+  maybeAutoSync();
+  document.addEventListener('visibilitychange', maybeAutoSync);
+
   // --- Sync now -----------------------------------------------------------
   var button = document.getElementById('sync-now');
   var feedback = document.getElementById('sync-feedback');

@@ -2296,3 +2296,10 @@ details > .bankcard:hover {
   font-weight: 700;
   font-size: 1rem;
 }
+
+/* The stamp turns into the refresh affordance when an automatic sync brought
+   new data while the page was being read - an offer, never a yank. */
+.topbar__stamp--fresh {
+  color: var(--accent);
+  cursor: pointer;
+}

@@ -1145,7 +1145,9 @@ export function dashboardBody(data: DashboardViewData): string {
     <header class="topbar">
       <div class="topbar__inner">
         <span class="topbar__brand">Finance</span>
-        <span class="topbar__stamp ${trustworthy ? '' : 'topbar__stamp--stale'}">${esc(syncLabel)}</span>
+        <span class="topbar__stamp ${trustworthy ? '' : 'topbar__stamp--stale'}" id="sync-stamp"
+              data-finished-at="${esc(data.lastSync?.finished_at ?? '')}"
+              data-connected="${data.bankConnected && !data.disconnection ? '1' : ''}">${esc(syncLabel)}</span>
         <nav class="rail" aria-label="Settings">
           <a class="rail__link" href="/cards">Cards</a>
           <a class="rail__link" href="/connect">Connection</a>
