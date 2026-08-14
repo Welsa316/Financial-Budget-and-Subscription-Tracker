@@ -1,7 +1,12 @@
 import { Cron } from 'croner';
 import { config } from './config.js';
 import { getDb } from './db.js';
-import { getAccessUrl, markDisconnected, clearDisconnection } from './enrollment.js';
+import {
+  accessUrlState,
+  clearDisconnection,
+  getDisconnection,
+  markDisconnected,
+} from './enrollment.js';
 import { dedupeKey, descriptionsSimilar, normalizeDescription, toCents } from './normalize.js';
 import { addDays, toYmd } from './time.js';
 import { dedupeImportedTwins, reconcileReplacedAccounts } from './reconcile.js';
@@ -149,6 +154,25 @@ async function fetchEverything(accessUrl: string, fullBackfill: boolean): Promis
   return { accounts: [...merged.values()], warnings: [...new Set(warnings)] };
 }
 
+/**
+ * Records a run that never got off the ground. The status endpoint reports
+ * the newest sync_log row, so without this the client's next poll reads a
+ * stale success and the failure is unobservable.
+ */
+function logFailedRun(trigger: SyncTrigger, message: string): void {
+  try {
+    const db = getDb();
+    const stamp = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO sync_log (started_at, finished_at, status, trigger, accounts_synced,
+         transactions_upserted, error)
+       VALUES (?, ?, 'error', ?, 0, 0, ?)`,
+    ).run(stamp, stamp, trigger, message);
+  } catch (error) {
+    console.error('[sync] could not record the failed run:', error);
+  }
+}
+
 export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
   if (running) {
     return {
@@ -161,17 +185,30 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
     };
   }
 
-  const accessUrl = getAccessUrl();
-  if (!accessUrl) {
+  // Every failure gets a sync_log row, including the ones that happen before
+  // the run properly starts. Returning early without logging meant the client
+  // polled, saw the PREVIOUS successful entry, and reported success - the
+  // press-sync-and-nothing-happens bug, invisible from the outside.
+  const credentials = accessUrlState();
+  if (credentials.state !== 'ok') {
+    const message =
+      credentials.state === 'unreadable'
+        ? 'Stored SimpleFIN credentials could not be read (the encryption key changed). Reconnect to fix.'
+        : 'SimpleFIN is not connected';
+    if (credentials.state === 'unreadable' && !getDisconnection()) {
+      markDisconnected(message, 'reconnect');
+    }
+    logFailedRun(trigger, message);
     return {
       status: 'error',
       accountsSynced: 0,
       transactionsUpserted: 0,
       pendingSettled: 0,
       warnings: [],
-      error: 'SimpleFIN is not connected',
+      error: message,
     };
   }
+  const accessUrl = credentials.url!;
 
   running = true;
   const db = getDb();

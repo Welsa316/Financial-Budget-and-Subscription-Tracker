@@ -768,3 +768,44 @@ describe('the auto-sync floor', () => {
     );
   });
 });
+
+/**
+ * The silent dead sync. A rotated ENCRYPTION_KEY leaves the stored access
+ * URL in place but unreadable; the app reported itself connected, /api/sync
+ * answered "started", and nothing happened - with no error anywhere, because
+ * the run failed before it was logged and the client's poll then read the
+ * PREVIOUS successful entry.
+ */
+describe('unreadable credentials never fail silently', () => {
+  it('reports disconnected, logs the failure, and says what to do', async () => {
+    resetDb();
+    const db = getDb();
+    const { isBankConnected, getDisconnection } = await import('../src/enrollment.js');
+
+    // A healthy run first, so a stale success exists to be mistaken for the
+    // current state - exactly the condition that hid this.
+    mock.state.accounts = [{ id: 'acc_1', name: 'Chase Total Checking', balance: '100.00' }];
+    mock.state.transactions = [
+      { id: 'a', account_id: 'acc_1', amount: '-10.00', posted: agoSec(1), description: 'CIRCLE K' },
+    ];
+    mock.state.errlist = [];
+    assert.equal((await runSync('manual')).status, 'ok');
+
+    // Now the secret becomes unreadable, as a key rotation leaves it.
+    db.prepare(`UPDATE settings SET value = 'sfenc.AAAA.BBBB.CCCC' WHERE key = 'simplefin_access_url'`).run();
+
+    assert.equal(isBankConnected(), false, 'an unusable secret is not "connected"');
+
+    const result = await runSync('manual');
+    assert.equal(result.status, 'error');
+    assert.match(result.error ?? '', /encryption key/i, 'the message names the real cause');
+
+    const latest = db
+      .prepare(`SELECT status, error FROM sync_log ORDER BY started_at DESC, id DESC LIMIT 1`)
+      .get() as { status: string; error: string | null };
+    assert.equal(latest.status, 'error', 'the failed run is the newest log entry');
+    assert.match(latest.error ?? '', /Reconnect/i, 'and the client will show how to fix it');
+
+    assert.ok(getDisconnection(), 'the reconnect banner is raised');
+  });
+});

@@ -23,20 +23,37 @@ export function saveAccessUrl(accessUrl: string): void {
   clearDisconnection();
 }
 
-export function getAccessUrl(): string | null {
+/**
+ * Credentials have three states, and collapsing them to null hid a whole
+ * class of dead sync: a rotated ENCRYPTION_KEY leaves the stored row in
+ * place, so the app reported itself connected, accepted every sync, and did
+ * nothing - with no error anywhere, because the failure happened before the
+ * run was even logged.
+ */
+export type CredentialState = 'ok' | 'missing' | 'unreadable';
+
+export function accessUrlState(): { state: CredentialState; url: string | null } {
   const stored = getSetting(ACCESS_URL_KEY);
-  if (!stored) return null;
+  if (!stored) return { state: 'missing', url: null };
   try {
-    return decrypt(stored);
+    return { state: 'ok', url: decrypt(stored) };
   } catch {
-    // Wrong or rotated ENCRYPTION_KEY. Treat as disconnected so the UI can say
-    // "reconnect" rather than throwing on every page load.
-    return null;
+    // Wrong or rotated ENCRYPTION_KEY: the ciphertext is intact but no longer
+    // ours to read. Reconnecting is the only fix, so say so loudly.
+    return { state: 'unreadable', url: null };
   }
 }
 
+export function getAccessUrl(): string | null {
+  return accessUrlState().url;
+}
+
+/**
+ * Connected means the credentials can actually be USED. Testing only that the
+ * row exists made an unreadable secret look healthy.
+ */
 export function isBankConnected(): boolean {
-  return getSetting(ACCESS_URL_KEY) !== null;
+  return accessUrlState().state === 'ok';
 }
 
 export function connectedAt(): string | null {

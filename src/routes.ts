@@ -12,6 +12,7 @@ import {
 import { getDb } from './db.js';
 import { config, validateConfig } from './config.js';
 import {
+  accessUrlState,
   clearConnection,
   getDisconnection,
   isBankConnected,
@@ -187,8 +188,16 @@ export function autoSyncTooSoon(now: number): boolean {
 }
 
 router.post('/api/sync', (req: Request, res: Response) => {
-  if (!isBankConnected()) {
-    res.status(400).json({ error: 'No bank is connected.' });
+  const credentials = accessUrlState();
+  if (credentials.state !== 'ok') {
+    // Name the actual cause: "not connected" sent someone hunting for a
+    // missing connection when the credentials were right there, unreadable.
+    res.status(400).json({
+      error:
+        credentials.state === 'unreadable'
+          ? 'Stored SimpleFIN credentials could not be read (the encryption key changed). Reconnect to fix.'
+          : 'No bank is connected.',
+    });
     return;
   }
   if (isSyncRunning()) {
