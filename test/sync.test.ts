@@ -21,7 +21,6 @@ let getDisconnection: typeof import('../src/enrollment.js').getDisconnection;
 let claimSetupToken: typeof import('../src/simplefin.js').claimSetupToken;
 
 const DAY = 86_400;
-const nowSec = (): number => Math.floor(Date.now() / 1000);
 /** Unix seconds N days ago, at midday, so timezone conversion cannot shift the date. */
 function agoSec(days: number): number {
   const date = new Date();

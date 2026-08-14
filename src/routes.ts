@@ -351,37 +351,31 @@ router.post('/override', (req: Request, res: Response) => {
   res.redirect(from === 'review' ? '/#review-queue' : `/#txn-${encodeURIComponent(id)}`);
 });
 
-function connectedAndReporting(accounts: AccountRow[]): boolean {
-  return accounts.some((account) => account.balance_updated_at !== null);
-}
-
 router.get('/', (req: Request, res: Response) => {
   const db = getDb();
   const recentSort: RecentSort =
     req.query.sort === 'place' ? 'place' : req.query.sort === 'category' ? 'category' : 'date';
   const spendDays: SpendDays = isSpendDays(req.query.days) ? (Number(req.query.days) as SpendDays) : 30;
 
+  // Freshest report first: the wallet renders accounts[0], and the staleness
+  // banner must describe the balance actually on screen - keyed on the
+  // newest across all accounts, another account still reporting could mute
+  // the warning for a frozen one being displayed.
   const accounts = db
     .prepare(
       `SELECT id, name, institution, available_cents, ledger_cents, balance_updated_at
-       FROM accounts ORDER BY name`,
+       FROM accounts
+       ORDER BY balance_updated_at IS NULL, balance_updated_at DESC, name`,
     )
     .all() as AccountRow[];
 
-  // The freshest balance report across accounts. The sync clock says whether
-  // WE ran; this says whether the bank actually told us anything new.
-  const newestBalance = accounts.reduce<string | null>(
-    (newest, account) =>
-      account.balance_updated_at && (!newest || account.balance_updated_at > newest)
-        ? account.balance_updated_at
-        : newest,
-    null,
-  );
+  const shownStamp = accounts[0]?.balance_updated_at ?? null;
+  const shownAge = shownStamp === null ? null : Date.parse(shownStamp);
+  // An unparseable stamp fails CLOSED: a trust signal that cannot read its
+  // own evidence must warn, not stay quiet.
   const balanceStale =
-    connectedAndReporting(accounts) &&
-    newestBalance !== null &&
-    Date.now() - Date.parse(newestBalance) > BALANCE_STALE_AFTER_MS
-      ? newestBalance
+    shownStamp !== null && (!Number.isFinite(shownAge) || Date.now() - shownAge! > BALANCE_STALE_AFTER_MS)
+      ? shownStamp
       : null;
 
   const lastSync = db

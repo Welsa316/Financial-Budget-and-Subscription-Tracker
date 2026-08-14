@@ -99,10 +99,3 @@ export function dayOfWeek(ymd: string): number {
   return parseYmd(ymd).getUTCDay();
 }
 
-/** Relative phrasing for upcoming charges: "today", "tomorrow", "in 6 days". */
-export function relativeDays(days: number): string {
-  if (days === 0) return 'today';
-  if (days === 1) return 'tomorrow';
-  if (days < 0) return `${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} ago`;
-  return `in ${days} days`;
-}

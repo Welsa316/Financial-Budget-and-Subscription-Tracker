@@ -7,6 +7,10 @@
  * Nothing under /api/, no login page, and no redirect is ever stored.
  */
 
+// BUMP THIS with any CSS/markup contract change: /static/ is cache-first,
+// so an installed app paints fresh HTML against last-visit's CSS until the
+// renamed cache forces a cold fetch. Forgetting it means one broken load
+// for every installed client.
 var VERSION = 'v4';
 var STATIC_CACHE = 'static-' + VERSION;
 var PAGE_CACHE = 'page-' + VERSION;

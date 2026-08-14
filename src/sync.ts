@@ -198,10 +198,32 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
     const now = new Date().toISOString();
 
     for (const account of outcome.accounts) {
-      const ledger = account.balance === undefined ? null : toCents(account.balance);
-      const availableRaw = account['available-balance'];
-      // The protocol omits available-balance when it equals balance.
-      const available = availableRaw === undefined || availableRaw === null ? ledger : toCents(availableRaw);
+      // Validate BEFORE any write: toCents throws on malformed amounts and
+      // toISOString throws on a nonsense epoch, and either landing between
+      // the balance upsert and the row writes used to commit a balance the
+      // ledger could not reproduce. A bad account is skipped with a warning,
+      // never half-written.
+      let ledger: number | null;
+      let available: number | null;
+      let balanceStamp: string;
+      try {
+        ledger = account.balance === undefined ? null : toCents(account.balance);
+        const availableRaw = account['available-balance'];
+        // The protocol omits available-balance when it equals balance.
+        available = availableRaw === undefined || availableRaw === null ? ledger : toCents(availableRaw);
+        const balanceDate = account['balance-date'];
+        balanceStamp =
+          typeof balanceDate === 'number' && Number.isFinite(balanceDate) && balanceDate > 0
+            ? new Date(balanceDate * 1000).toISOString()
+            : now;
+      } catch (error) {
+        warnings.push(
+          `${account.name ?? account.id}: unusable balance data (${
+            error instanceof Error ? error.message : String(error)
+          })`,
+        );
+        continue;
+      }
 
       db.prepare(
         `INSERT INTO accounts (
@@ -227,7 +249,7 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
         account.currency || 'USD',
         available,
         ledger,
-        account['balance-date'] ? new Date(account['balance-date'] * 1000).toISOString() : now,
+        balanceStamp,
         JSON.stringify({ ...account, transactions: undefined }),
         now,
         now,

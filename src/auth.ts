@@ -197,6 +197,14 @@ export function sameOriginOnly(req: Request, res: Response, next: NextFunction):
   }
   const origin = req.get('origin');
   if (!origin) {
+    // Browsers send Origin on every POST, so an absent header is normally a
+    // non-browser client (the statement-import CLI) - but if the request
+    // says it came from a browser fetch anyway, judge it by Sec-Fetch-Site.
+    const site = req.get('sec-fetch-site');
+    if (site && site !== 'same-origin' && site !== 'none') {
+      res.status(403).json({ error: 'Cross-site request refused.' });
+      return;
+    }
     next();
     return;
   }

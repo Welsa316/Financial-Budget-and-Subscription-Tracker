@@ -1,17 +1,19 @@
 import { esc, money, moneyAbs, moneyParts } from '../format.js';
-import { addDays, formatStamp, formatDayMonth, relativeDays } from '../time.js';
+import { addDays, formatStamp, formatDayMonth } from '../time.js';
 import type { Classified } from '../classify.js';
 import type { CommitmentStatus } from '../commitments.js';
 import {
   placeLabel,
+  SPEND_DAYS,
   type DashboardModel,
+  type RecentSort,
   type ReviewReason,
+  type SpendDays,
   type SpendingSlice,
 } from '../dashboard.js';
 import { standing, type SpentLine, type WeekSummary } from '../budget.js';
 import { BRAND_ICONS } from './brand-icons.js';
 import { getRules, type CardFace } from '../rules.js';
-import { SPEND_DAYS, type RecentSort, type SpendDays } from '../dashboard.js';
 import { CARD_ICONS, CARD_LABELS, type CardId, type CardLayout } from '../layout.js';
 
 export interface AccountRow {
@@ -98,7 +100,6 @@ function paycheckDetail(data: DashboardViewData): string {
   const visibleIds = data.layout.hidden.has('transactions')
     ? new Set<string>()
     : new Set(data.recent.map((transaction) => transaction.id));
-  const negative = current.allowanceCents < 0;
   const ratePercent = Math.round(current.rate * 100);
   const share = Math.round(current.incomeCents * current.rate);
 
@@ -234,14 +235,14 @@ function balanceDetail(account: AccountRow, trustworthy: boolean): string {
  * silhouette is what does the recognising anyway.
  */
 function brandMark(item: CommitmentStatus): string {
-  const icon = item.icon ? BRAND_ICONS[item.icon] : undefined;
+  const icon = item.icon && Object.hasOwn(BRAND_ICONS, item.icon) ? BRAND_ICONS[item.icon] : undefined;
   if (!icon) {
     // A dot rather than a wrong logo: guessing a brand from a merchant string
     // gets it confidently wrong, which is worse than plainly not knowing.
     return `<span class="brand brand--none" aria-hidden="true"></span>`;
   }
   return `<span class="brand" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="${icon.path}" /></svg>
+              <svg viewBox="0 0 24 24"><path d="${esc(icon.path)}" /></svg>
             </span>`;
 }
 
@@ -374,7 +375,7 @@ function sliceRows(
       return `<li class="slice">
               ${
                 rolled || !linkPlaces
-                  ? `<span class="slice__link slice__link--plain">${inner}</span>`
+                  ? `<span class="slice__link">${inner}</span>`
                   : `<a class="slice__link" href="${viewHref(
                       'place',
                       days,
@@ -608,11 +609,14 @@ interface PlaceGroup {
   transactions: Classified[];
 }
 
-function groupByPlace(transactions: Classified[]): PlaceGroup[] {
+function groupBy(
+  transactions: Classified[],
+  key: (transaction: Classified) => string,
+  compare: (a: PlaceGroup, b: PlaceGroup) => number,
+): PlaceGroup[] {
   const groups = new Map<string, PlaceGroup>();
-
   for (const transaction of transactions) {
-    const label = placeLabel(transaction);
+    const label = key(transaction);
     const group =
       groups.get(label) ?? { label, outCents: 0, inCents: 0, transactions: [] as Classified[] };
     if (transaction.amountCents < 0) group.outCents += Math.abs(transaction.amountCents);
@@ -620,10 +624,14 @@ function groupByPlace(transactions: Classified[]): PlaceGroup[] {
     group.transactions.push(transaction);
     groups.set(label, group);
   }
+  return [...groups.values()].sort(compare);
+}
 
-  return [...groups.values()].sort(
-    (a, b) => b.outCents - a.outCents || a.label.localeCompare(b.label),
-  );
+const bySpend = (a: PlaceGroup, b: PlaceGroup): number =>
+  b.outCents - a.outCents || a.label.localeCompare(b.label);
+
+function groupByPlace(transactions: Classified[]): PlaceGroup[] {
+  return groupBy(transactions, placeLabel, bySpend);
 }
 
 /**
@@ -696,11 +704,13 @@ function clusterCard(
 }
 
 function categoryGroup(group: PlaceGroup): string {
-  const icon = CATEGORY_ICONS[group.label];
+  // Own-property lookup: a category named "constructor" must fall to the
+  // plain disc, not inherit Object.prototype into the attribute.
+  const icon = Object.hasOwn(CATEGORY_ICONS, group.label) ? CATEGORY_ICONS[group.label] : undefined;
   return clusterCard(group, {
     anchor: `cat-${placeSlug(group.label)}`,
     media: icon
-      ? `<span class="catcard__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="${icon}" /></svg></span>`
+      ? `<span class="catcard__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="${esc(icon)}" /></svg></span>`
       : `<span class="catcard__icon catcard__icon--none" aria-hidden="true"></span>`,
   });
 }
@@ -731,25 +741,13 @@ function placeCluster(group: PlaceGroup): string {
 }
 
 function groupByCategory(transactions: Classified[]): PlaceGroup[] {
-  const groups = new Map<string, PlaceGroup>();
-
-  for (const transaction of transactions) {
-    const label = transaction.category;
-    const group =
-      groups.get(label) ?? { label, outCents: 0, inCents: 0, transactions: [] as Classified[] };
-    if (transaction.amountCents < 0) group.outCents += Math.abs(transaction.amountCents);
-    else group.inCents += transaction.amountCents;
-    group.transactions.push(transaction);
-    groups.set(label, group);
-  }
-
   // Uncategorized pins last whatever its size: it is the worklist, not a
   // ranking entry, and burying it mid-list would hide exactly the thing it
   // exists to surface.
-  return [...groups.values()].sort((a, b) => {
+  return groupBy(transactions, (transaction) => transaction.category, (a, b) => {
     if (a.label === 'Uncategorized') return 1;
     if (b.label === 'Uncategorized') return -1;
-    return b.outCents - a.outCents || a.label.localeCompare(b.label);
+    return bySpend(a, b);
   });
 }
 
@@ -800,7 +798,7 @@ function transactionsDetail(data: DashboardViewData): string {
   // Plain links, so the sort survives a reload and can be bookmarked. There is
   // no client-side state to lose.
   const chip = (href: string, label: string, on: boolean): string =>
-    `<a class="chip ${on ? 'chip--on' : ''}" href="${href}"${on ? ' aria-current="true"' : ''}>${label}</a>`;
+    `<a class="chip ${on ? 'chip--on' : ''}" href="${esc(href)}"${on ? ' aria-current="true"' : ''}>${esc(label)}</a>`;
   const toggle = `<div class="sortbar" id="txns-view" role="group" aria-label="Sort transactions">
           ${chip(viewHref('date', data.spendDays, 'txns-view'), 'Newest', sort === 'date')}
           ${chip(viewHref('place', data.spendDays, 'txns-view'), 'By place', sort === 'place')}
@@ -869,11 +867,11 @@ interface Row {
  * number: the balance sits where the card number would, and no digits exist.
  */
 function bankCardHead(account: AccountRow, balance: number | null, card: CardFace): string {
-  const mark = card.brand ? BRAND_ICONS[card.brand] : undefined;
+  const mark = card.brand && Object.hasOwn(BRAND_ICONS, card.brand) ? BRAND_ICONS[card.brand] : undefined;
   return `<summary class="bankcard">
                 <span class="bankcard__brand"><b>${esc(
                   card.wordmark,
-                )}</b>${mark ? `<svg aria-hidden="true" viewBox="0 0 24 24"><path d="${mark.path}" /></svg>` : ''}</span>
+                )}</b>${mark ? `<svg aria-hidden="true" viewBox="0 0 24 24"><path d="${esc(mark.path)}" /></svg>` : ''}</span>
                 <span class="bankcard__label">Balance</span>
                 <span class="bankcard__figure num">${
                   balance === null ? '—' : moneyParts(balance)
@@ -906,8 +904,7 @@ function wallet(data: DashboardViewData, trustworthy: boolean): string {
       </section>`;
 }
 
-function buildRows(data: DashboardViewData, trustworthy: boolean): Row[] {
-  const { current } = data.paycheck;
+function buildRows(data: DashboardViewData): Row[] {
   const reviewTotal = data.review.reduce(
     (sum, item) => (item.transaction.amountCents < 0 ? sum + Math.abs(item.transaction.amountCents) : sum),
     0,
@@ -972,7 +969,7 @@ function row(item: Row): string {
 }
 
 function renderCards(data: DashboardViewData, trustworthy: boolean): string {
-  const rows = buildRows(data, trustworthy).filter((item) => !data.layout.hidden.has(item.id));
+  const rows = buildRows(data).filter((item) => !data.layout.hidden.has(item.id));
   const order = new Map(data.layout.order.map((id, index) => [id, index]));
   rows.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
 

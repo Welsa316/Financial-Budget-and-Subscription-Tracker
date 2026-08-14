@@ -525,11 +525,6 @@ a.spent__link:hover .spent__label {
   text-transform: none;
 }
 
-.is-warning {
-  color: var(--negative);
-  font-weight: 560;
-}
-
 .dot {
   display: inline-block;
   width: 6px;
@@ -1225,50 +1220,6 @@ body:has(.offline-banner) .topbar {
 .w-90{width:90%}.w-91{width:91%}.w-92{width:92%}.w-93{width:93%}.w-94{width:94%}.w-95{width:95%}.w-96{width:96%}.w-97{width:97%}.w-98{width:98%}.w-99{width:99%}
 .w-100{width:100%}
 
-/* The figure beside a card title. Distinct from .hero__when, which is tuned
-   for the dark hero card — reusing that here put near-white text on cream. */
-/* ---------- Due in the next 30 days ---------- */
-
-.due {
-  display: flex;
-  flex-direction: column;
-}
-
-.due__row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.35rem 0;
-  border-bottom: 1px solid var(--line);
-}
-
-.due__row:last-child {
-  border-bottom: 0;
-}
-
-.due__main {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  min-width: 0;
-}
-
-.due__name {
-  font-weight: 560;
-  overflow-wrap: anywhere;
-}
-
-.due__when {
-  font-size: 0.8125rem;
-  color: var(--ink-3);
-}
-
-.due__amount {
-  font-weight: 600;
-  white-space: nowrap;
-}
-
 /* The whole slice row is the target, not just the label — a 6px bar is not a
    tap target on a phone. The grid moves onto the link so the columns still
    line up across rows. */
@@ -1919,7 +1870,6 @@ body:has(.offline-banner) .topbar {
   background: var(--line-control);
 }
 
-.due__name .brand,
 .commit__name .brand {
   vertical-align: -0.3em;
 }
