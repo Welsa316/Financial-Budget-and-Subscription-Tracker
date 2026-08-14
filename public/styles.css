@@ -2303,3 +2303,13 @@ details > .bankcard:hover {
   color: var(--accent);
   cursor: pointer;
 }
+
+/* Focus anchors, not controls: the revealed list and a flattened section
+   receive focus programmatically so it has somewhere sane to live, and a
+   ring on a non-interactive container would only confuse. */
+.catcard .txns:focus,
+.row__d:focus,
+.wallet__d:focus,
+.hero__working:focus {
+  outline: none;
+}

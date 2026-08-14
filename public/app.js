@@ -42,17 +42,49 @@
 
   function fitRowsToWidth(query) {
     for (var i = 0; i < allRows.length; i++) {
-      var summary = allRows[i].querySelector(':scope > summary');
-      // Flattened summaries are labels, not controls: CSS takes them out of
-      // the pointer's reach, this takes them out of the tab order.
-      if (summary) summary.tabIndex = query.matches ? -1 : 0;
+      var section = allRows[i];
+      var summary = section.querySelector(':scope > summary');
       // A deliberate collapse survives a resize.
-      if (allRows[i].dataset.touched) continue;
-      allRows[i].open = query.matches || allRows[i].dataset.byDefault === 'open';
+      if (!section.dataset.touched) {
+        section.open = query.matches || section.dataset.byDefault === 'open';
+      }
+      if (!summary) continue;
+      // Only a summary whose section actually flattened open leaves the tab
+      // order - a section the user kept closed must stay reachable, or its
+      // content is locked away from the keyboard entirely. (Shipped that way
+      // once: the tabIndex was assigned before the touched guard.)
+      var flattened = query.matches && section.open;
+      if (flattened && document.activeElement === summary) {
+        // The control under focus is about to become inert; park focus on
+        // the section so it does not fall back to the top of the document.
+        section.tabIndex = -1;
+        section.focus({ preventScroll: true });
+      }
+      summary.tabIndex = flattened ? -1 : 0;
     }
   }
   fitRowsToWidth(wide);
   wide.addEventListener('change', fitRowsToWidth);
+
+  // Activating "Show N more" removes the summary from the page, and the
+  // browser drops the lost focus at the top of the document - the reader
+  // lands nowhere near the rows they just revealed. Hand focus to the
+  // revealed list instead. (toggle does not bubble; capture catches it.)
+  document.addEventListener(
+    'toggle',
+    function (event) {
+      var details = event.target;
+      if (!details.classList || !details.classList.contains('catcard__more') || !details.open) {
+        return;
+      }
+      var list = details.querySelector('.txns');
+      if (list) {
+        list.tabIndex = -1;
+        list.focus({ preventScroll: true });
+      }
+    },
+    true,
+  );
 
   // Signing out must not leave balances sitting in the cache.
   var logout = document.querySelector('form[action="/logout"]');
