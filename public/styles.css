@@ -703,82 +703,6 @@ a.spent__link:hover .spent__label {
   text-decoration: none;
 }
 
-.places {
-  display: flex;
-  flex-direction: column;
-}
-
-.place {
-  border-bottom: 1px solid var(--line);
-}
-
-.places > li:last-child .place {
-  border-bottom: 0;
-}
-
-.place__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  min-height: 52px;
-  padding: 0.5rem 0;
-  cursor: pointer;
-  list-style: none;
-}
-
-.place__head::-webkit-details-marker {
-  display: none;
-}
-
-/* Same affordance as the other disclosures on the page, so an expandable row
-   looks expandable rather than merely tappable. */
-.place__head::before {
-  content: '▸';
-  color: var(--ink-3);
-  transition: transform 140ms ease;
-}
-
-.place[open] > .place__head::before {
-  transform: rotate(90deg);
-}
-
-.place__headings {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  min-width: 0;
-  margin-right: auto;
-}
-
-.place__name {
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
-.place__amount {
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-/* Same green the individual incoming rows use, so a place that paid you does
-   not read as a place you spent at. */
-.place__amount--in {
-  color: var(--positive);
-}
-
-.place__meta {
-  font-size: 0.8125rem;
-  color: var(--ink-3);
-}
-
-/* The rows sit under their heading rather than beside it: at 375px an indent
-   deep enough to read as nesting leaves nothing for the description. */
-.place > .txns {
-  border-top: 1px solid var(--line);
-  padding-bottom: 0.4rem;
-}
-
 .txns {
   display: flex;
   flex-direction: column;
@@ -1364,11 +1288,11 @@ body:has(.offline-banner) .topbar {
   text-decoration: underline;
 }
 
-/* The anchor sits on the list inside the group, which is what makes the
-   browser open it — but that puts the group's own heading off the top of the
-   screen without room reserved above. Enough for the heading plus the sticky
-   top bar; measured, not guessed. */
-.place > .txns {
+/* Anchored elements need room reserved above them for the sticky top bar,
+   or arriving at one buries its heading. Measured, not guessed. */
+.catcard,
+.sortbar,
+#review-queue {
   scroll-margin-top: 9.5rem;
 }
 
@@ -1829,8 +1753,7 @@ body:has(.offline-banner) .topbar {
   }
 
   .row__d[open] > .row__head::after,
-  .subgroup[open] > summary::before,
-  .place[open] > .place__head::before {
+  .subgroup[open] > summary::before {
     display: none;
   }
 
@@ -2341,4 +2264,35 @@ details > .bankcard:hover {
 
 .catcard__more[open] > summary {
   display: none;
+}
+
+/* ---------- Location coding ----------
+   A stable hue per place, hashed from its name, so the same merchant wears
+   the same colour on every load. The hue carries no meaning beyond "this
+   section is not the last one" - it is a boundary marker, asked for so one
+   location visibly ends where the next begins. Bright-on-dark pairs; every
+   monogram letter clears 4.5:1 on its disc. */
+
+.hue-0 { --cluster-hue: #45e0c8; --cluster-hue-soft: #082521; }
+.hue-1 { --cluster-hue: #5ab8f0; --cluster-hue-soft: #0a1d2b; }
+.hue-2 { --cluster-hue: #a78bfa; --cluster-hue-soft: #17122b; }
+.hue-3 { --cluster-hue: #e8b84a; --cluster-hue-soft: #241a06; }
+.hue-4 { --cluster-hue: #ff8a7a; --cluster-hue-soft: #2a120e; }
+.hue-5 { --cluster-hue: #9fd66a; --cluster-hue-soft: #16220c; }
+.hue-6 { --cluster-hue: #f08ab8; --cluster-hue-soft: #260f1a; }
+.hue-7 { --cluster-hue: #d0b48a; --cluster-hue-soft: #221a0f; }
+
+.catcard--hued {
+  border-left: 3px solid var(--cluster-hue);
+}
+
+.catcard--hued .catcard__name {
+  color: var(--cluster-hue);
+}
+
+.catcard__icon--mono {
+  background: var(--cluster-hue-soft);
+  color: var(--cluster-hue);
+  font-weight: 700;
+  font-size: 1rem;
 }

@@ -11,7 +11,7 @@ import {
 import { standing, type SpentLine, type WeekSummary } from '../budget.js';
 import { BRAND_ICONS } from './brand-icons.js';
 import { getRules, type CardFace } from '../rules.js';
-import { SPEND_DAYS } from '../dashboard.js';
+import { SPEND_DAYS, type RecentSort, type SpendDays } from '../dashboard.js';
 import { CARD_ICONS, CARD_LABELS, type CardId, type CardLayout } from '../layout.js';
 
 export interface AccountRow {
@@ -340,7 +340,12 @@ function commitmentsDetail(data: DashboardViewData): string {
  * merchant would always read as 100% of spending, which is a lie. Against a
  * track, fill has to mean share.
  */
-function sliceRows(slices: SpendingSlice[], totalCents: number, linkPlaces: boolean): string {
+function sliceRows(
+  slices: SpendingSlice[],
+  totalCents: number,
+  linkPlaces: boolean,
+  days: SpendDays,
+): string {
   if (slices.length === 0) return '<li class="slice slice--empty">Nothing in this window.</li>';
 
   return slices
@@ -359,13 +364,31 @@ function sliceRows(slices: SpendingSlice[], totalCents: number, linkPlaces: bool
               ${
                 rolled || !linkPlaces
                   ? `<span class="slice__link slice__link--plain">${inner}</span>`
-                  : `<a class="slice__link" href="/?sort=place#place-${esc(
-                      placeSlug(slice.label),
+                  : `<a class="slice__link" href="${viewHref(
+                      'place',
+                      days,
+                      `place-${placeSlug(slice.label)}`,
                     )}">${inner}</a>`
               }
             </li>`;
     })
     .join('\n            ');
+}
+
+/**
+ * Both toggles live in one URL, so a link that names only its own parameter
+ * silently resets the other - switching the sort used to snap the spending
+ * window back to 30d, and vice versa. Defaults stay out of the URL, and the
+ * fragment lands the reload back on the card the chip belongs to instead of
+ * the top of the page. The ids sit on content that is hidden while the row
+ * is closed, which is what makes the browser open the row on arrival.
+ */
+function viewHref(sort: RecentSort, days: SpendDays, anchor: string): string {
+  const params = new URLSearchParams();
+  if (sort !== 'date') params.set('sort', sort);
+  if (days !== 30) params.set('days', String(days));
+  const query = params.toString();
+  return `/${query ? `?${query}` : ''}#${anchor}`;
 }
 
 function spendingDetail(data: DashboardViewData): string {
@@ -374,14 +397,16 @@ function spendingDetail(data: DashboardViewData): string {
   // bookmarked, and there is no client-side state to lose.
   const windows = SPEND_DAYS.map((days) => {
     const on = days === data.spendDays;
-    return `<a class="chip ${on ? 'chip--on' : ''}" href="/?days=${days}"${
-      on ? ' aria-current="true"' : ''
-    }>${days}d</a>`;
+    return `<a class="chip ${on ? 'chip--on' : ''}" href="${viewHref(
+      data.recentSort,
+      days,
+      'spend-view',
+    )}"${on ? ' aria-current="true"' : ''}>${days}d</a>`;
   }).join('\n          ');
   // Same reason: the by-place view renders the anchors these bars aim at, and
   // it is part of the transaction list.
   const linkPlaces = !data.layout.hidden.has('transactions');
-  return `        <div class="sortbar" role="group" aria-label="Spending window">
+  return `        <div class="sortbar" id="spend-view" role="group" aria-label="Spending window">
           ${windows}
         </div>
         <div class="split" role="img" aria-label="Subscriptions and bills ${s.billsPercent}%, everything else ${
@@ -401,12 +426,12 @@ function spendingDetail(data: DashboardViewData): string {
 
         <h3 class="subhead">Subs &amp; bills</h3>
         <ul class="slices">
-            ${sliceRows(s.billCategories, s.totalCents, linkPlaces)}
+            ${sliceRows(s.billCategories, s.totalCents, linkPlaces, data.spendDays)}
         </ul>
 
         <h3 class="subhead">Everything else</h3>
         <ul class="slices">
-            ${sliceRows(s.discretionaryCategories, s.totalCents, linkPlaces)}
+            ${sliceRows(s.discretionaryCategories, s.totalCents, linkPlaces, data.spendDays)}
         </ul>`;
 }
 
@@ -523,7 +548,10 @@ function reviewDetail(data: DashboardViewData): string {
   const items = data.review;
   if (items.length === 0) return '';
 
-  return `        <ul class="txns">
+  // The id is the redirect target after resolving an item from here. It sits
+  // on the list, not the item: the item leaves the queue the moment it is
+  // resolved, and an anchor that vanishes lands the reload at the top.
+  return `        <ul class="txns" id="review-queue">
           ${items
             .map(
               (item) => `<li class="txn">
@@ -612,24 +640,27 @@ const CATEGORY_ICONS: Record<string, string> = {
 };
 
 /**
- * A category as its own card: mark, name, total, the first three charges in
- * the open, and the rest behind one "Show N more". The first pass rendered
- * categories with the collapsed by-place rows, and on a phone that read as
- * the same list reordered - the grouping has to be visible, not tappable.
+ * A cluster as its own card: mark, name, total, the first three charges in
+ * the open, and the rest behind one "Show N more". Both grouped views use
+ * this - the first pass rendered them with the collapsed by-place rows, and
+ * on a phone that read as the same list reordered. The grouping has to be
+ * visible, not tappable.
  */
-function categoryGroup(group: PlaceGroup): string {
+function clusterCard(
+  group: PlaceGroup,
+  opts: { anchor: string; media: string; hueClass?: string },
+): string {
   const count = group.transactions.length;
   const net = group.outCents - group.inCents;
   const incoming = net < 0;
-  const icon = CATEGORY_ICONS[group.label];
   const shown = group.transactions.slice(0, 3);
   const rest = group.transactions.slice(3);
 
-  return `<li class="catcard" id="cat-${esc(placeSlug(group.label))}">
+  return `<li class="catcard${opts.hueClass ? ` catcard--hued ${opts.hueClass}` : ''}" id="${
+    opts.anchor
+  }">
             <div class="catcard__head">
-              <span class="catcard__icon${icon ? '' : ' catcard__icon--none'}" aria-hidden="true">${
-                icon ? `<svg viewBox="0 0 24 24"><path d="${icon}" /></svg>` : ''
-              }</span>
+              ${opts.media}
               <span class="catcard__names">
                 <span class="catcard__name">${esc(group.label)}</span>
                 <span class="catcard__meta num${incoming ? ' catcard__meta--in' : ''}">${
@@ -651,6 +682,41 @@ function categoryGroup(group: PlaceGroup): string {
                 : ''
             }
           </li>`;
+}
+
+function categoryGroup(group: PlaceGroup): string {
+  const icon = CATEGORY_ICONS[group.label];
+  return clusterCard(group, {
+    anchor: `cat-${placeSlug(group.label)}`,
+    media: icon
+      ? `<span class="catcard__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="${icon}" /></svg></span>`
+      : `<span class="catcard__icon catcard__icon--none" aria-hidden="true"></span>`,
+  });
+}
+
+/**
+ * A stable hue per place, so the same merchant wears the same colour on
+ * every load. The number only has to spread names across the palette -
+ * nothing downstream reads meaning into which hue a place landed on.
+ */
+function hueFor(label: string): number {
+  let hash = 0;
+  for (let i = 0; i < label.length; i++) hash = (hash * 31 + label.charCodeAt(i)) % 8;
+  return hash;
+}
+
+/**
+ * Places carry a monogram rather than an icon: guessing a brand mark from a
+ * merchant string gets it confidently wrong, and a lettered disc in the
+ * place's own hue still separates one section from the next at a glance.
+ */
+function placeCluster(group: PlaceGroup): string {
+  const initial = (group.label.match(/[a-z0-9]/i)?.[0] ?? '#').toUpperCase();
+  return clusterCard(group, {
+    anchor: `place-${placeSlug(group.label)}`,
+    media: `<span class="catcard__icon catcard__icon--mono" aria-hidden="true">${esc(initial)}</span>`,
+    hueClass: `hue-${hueFor(group.label)}`,
+  });
 }
 
 function groupByCategory(transactions: Classified[]): PlaceGroup[] {
@@ -676,40 +742,6 @@ function groupByCategory(transactions: Classified[]): PlaceGroup[] {
   });
 }
 
-function placeGroup(group: PlaceGroup): string {
-  const count = group.transactions.length;
-  const net = group.outCents - group.inCents;
-  // A place that paid you more than you paid it — wages, or a full refund.
-  // Without the distinction income read as though you had spent it there.
-  const incoming = net < 0;
-
-  const meta = [`${count} charge${count === 1 ? '' : 's'}`];
-  // Only worth saying when money went both ways; on pure income the total
-  // already is the money that came back.
-  if (group.inCents > 0 && group.outCents > 0) meta.push(`${moneyAbs(group.inCents)} back`);
-
-  // Collapsed, so the card reads as a ranked list of where the money goes
-  // rather than the same transactions with headings between them — a hundred
-  // rows of that is a lot of thumb. The charges are one tap away, and a link
-  // from the "already spent" breakdown still reaches them: navigating to a
-  // fragment opens every details element above it, not just the nearest.
-  return `<li>
-            <details class="place">
-              <summary class="place__head">
-                <span class="place__headings">
-                  <span class="place__name">${esc(group.label)}</span>
-                  <span class="place__meta">${esc(meta.join(' · '))}</span>
-                </span>
-                <span class="place__amount num ${incoming ? 'place__amount--in' : ''}">${
-                  incoming ? '+' : ''
-                }${esc(moneyAbs(net))}</span>
-              </summary>
-              <ul class="txns" id="place-${esc(placeSlug(group.label))}">
-                ${group.transactions.map((row) => transactionRow(row)).join('\n                ')}
-              </ul>
-            </details>
-          </li>`;
-}
 
 /**
  * The list, broken by day.
@@ -758,16 +790,16 @@ function transactionsDetail(data: DashboardViewData): string {
   // no client-side state to lose.
   const chip = (href: string, label: string, on: boolean): string =>
     `<a class="chip ${on ? 'chip--on' : ''}" href="${href}"${on ? ' aria-current="true"' : ''}>${label}</a>`;
-  const toggle = `<div class="sortbar" role="group" aria-label="Sort transactions">
-          ${chip('/', 'Newest', sort === 'date')}
-          ${chip('/?sort=place', 'By place', sort === 'place')}
-          ${chip('/?sort=category', 'By category', sort === 'category')}
+  const toggle = `<div class="sortbar" id="txns-view" role="group" aria-label="Sort transactions">
+          ${chip(viewHref('date', data.spendDays, 'txns-view'), 'Newest', sort === 'date')}
+          ${chip(viewHref('place', data.spendDays, 'txns-view'), 'By place', sort === 'place')}
+          ${chip(viewHref('category', data.spendDays, 'txns-view'), 'By category', sort === 'category')}
         </div>`;
 
   const body =
     sort === 'place'
-      ? `<ul class="places">
-          ${groupByPlace(data.recent).map(placeGroup).join('\n          ')}
+      ? `<ul class="catcards">
+          ${groupByPlace(data.recent).map(placeCluster).join('\n          ')}
         </ul>`
       : sort === 'category'
         ? `<ul class="catcards">

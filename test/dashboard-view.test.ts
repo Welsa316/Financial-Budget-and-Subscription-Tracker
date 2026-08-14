@@ -203,17 +203,20 @@ describe('the spending bars open the place they name', () => {
 
   it('lands on an anchor the by-place view actually renders', () => {
     const html = render({ recentSort: 'place' }, txns);
-    assert.match(html, /<ul class="txns" id="place-circle-k">/);
+    assert.match(html, /<li class="catcard[^"]*" id="place-circle-k">/);
   });
 
-  it('puts that anchor inside the group, which is what opens it', () => {
+  it('puts that anchor inside the transaction row body, which is what opens it', () => {
     const html = render({ recentSort: 'place' }, txns);
     const anchor = html.indexOf('id="place-circle-k"');
-    const details = html.lastIndexOf('<details class="place">', anchor);
-    const summary = html.lastIndexOf('<summary class="place__head"', anchor);
-
-    assert.ok(details > 0 && details < summary && summary < anchor, 'details, heading, then list');
-    assert.doesNotMatch(html, /<summary class="place__head" id=/, 'a heading is never hidden');
+    assert.ok(anchor > 0, 'anchor renders');
+    // The id must sit in content the closed row hides — arriving at it is
+    // what makes the browser open the row. An id on a summary never expands
+    // anything, because a summary is never hidden.
+    const body = html.lastIndexOf('<div class="row__body">', anchor);
+    const rowStart = html.lastIndexOf('<details class="row__d"', anchor);
+    assert.ok(rowStart > 0 && body > rowStart, 'anchor is inside an openable row body');
+    assert.doesNotMatch(html, /<summary[^>]*id="place-/, 'a summary never carries the anchor');
   });
 
   it('does not link the rolled-up "N more" row anywhere', () => {
@@ -455,6 +458,58 @@ describe('transactions by category', () => {
   it('does not render category anchors on the other sorts', () => {
     assert.doesNotMatch(render({}, txns), /id="cat-/);
     assert.doesNotMatch(render({ recentSort: 'place' }, txns), /id="cat-/);
+  });
+});
+
+describe('transactions by place', () => {
+  const txns = [
+    make('Card Purchase 08/10 Circle K # 07238 Kenner LA', '-20.00', '2026-08-10', { merchant: 'Circle K' }),
+    make('Card Purchase 08/09 Circle K # 07238 Kenner LA', '-18.00', '2026-08-09', { merchant: 'Circle K' }),
+    make('Card Purchase 08/08 Circle K # 07238 Kenner LA', '-16.00', '2026-08-08', { merchant: 'Circle K' }),
+    make('Card Purchase 08/07 Circle K # 07238 Kenner LA', '-14.00', '2026-08-07', { merchant: 'Circle K' }),
+    make('Card Purchase 08/10 Sonic Drive IN #4342 LA', '-8.50', '2026-08-10', { merchant: 'Sonic' }),
+  ];
+
+  it('renders each place as its own hued section with a monogram', () => {
+    const html = render({ recentSort: 'place' }, txns);
+    const card = html.match(/<li class="catcard catcard--hued (hue-\d)" id="place-circle-k">/);
+    assert.ok(card, 'the place is a hued cluster card');
+    assert.match(html, /catcard__icon--mono" aria-hidden="true">C</, 'monogram carries the initial');
+    // Stability: the same name maps to the same hue on every render.
+    const again = render({ recentSort: 'place' }, txns).match(
+      /<li class="catcard catcard--hued (hue-\d)" id="place-circle-k">/,
+    );
+    assert.equal(card![1], again![1], 'the hue is stable');
+  });
+
+  it('keeps the first charges visible and the rest behind one reveal', () => {
+    const html = render({ recentSort: 'place' }, txns);
+    const start = html.indexOf('id="place-circle-k"');
+    const next = html.indexOf('<li class="catcard', start + 1);
+    const inner = html.slice(start, next === -1 ? undefined : next);
+    assert.match(inner, />Show 1 more</, 'four charges, three in the open');
+  });
+});
+
+describe('the toggles carry each other', () => {
+  const txns = [make('Card Purchase 08/10 Circle K # 07238 Kenner LA', '-20.00', '2026-08-10')];
+
+  it('sort links keep a non-default spending window', () => {
+    const html = render({ spendDays: 90 }, txns);
+    assert.match(html, /href="\/\?sort=place&(?:amp;)?days=90#txns-view"/, 'By place keeps 90d');
+    assert.match(html, /href="\/\?days=90#txns-view"/, 'Newest keeps 90d');
+  });
+
+  it('window links keep a non-default sort, and both land on their card', () => {
+    const html = render({ recentSort: 'category' }, txns);
+    assert.match(html, /href="\/\?sort=category&(?:amp;)?days=7#spend-view"/, '7d keeps the sort');
+    assert.match(html, /id="spend-view"/, 'the window anchor exists');
+    assert.match(html, /id="txns-view"/, 'the sort anchor exists');
+  });
+
+  it('drops defaults from the URL entirely', () => {
+    const html = render({}, txns);
+    assert.match(html, /href="\/#txns-view"/, 'Newest at 30d is just the fragment');
   });
 });
 
