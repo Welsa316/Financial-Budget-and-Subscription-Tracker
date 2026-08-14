@@ -684,6 +684,27 @@ describe('the balance-age warning', () => {
 describe('sync-on-open state attributes', () => {
   const txns = [make('DOORDASH INC PAYMENT', '900.00', '2026-08-08')];
 
+  it('announces its own changes: the stamp is a polite live region', () => {
+    const html = render({}, txns);
+    const stamp = html.match(/<span class="topbar__stamp[^>]*id="sync-stamp"[\s\S]*?>/)![0]!;
+    assert.match(stamp, /role="status"/);
+    assert.match(stamp, /aria-live="polite"/);
+  });
+
+  it('speaks the bank name: only the octagon is decorative', () => {
+    const html = render(
+      {
+        accounts: [
+          { id: 'a', name: 'TOTAL CHECKING', institution: null, available_cents: 1, ledger_cents: 1, balance_updated_at: null },
+        ],
+      },
+      txns,
+    );
+    const brand = html.match(/<span class="bankcard__brand"[\s\S]*?<\/span>/)![0]!;
+    assert.doesNotMatch(brand, /^<span class="bankcard__brand" aria-hidden/, 'the wordmark is not hidden');
+    assert.match(brand, /<svg aria-hidden="true"/, 'the mark is');
+  });
+
   it('emits the last sync time and the connected flag', () => {
     const html = render(
       { lastSync: { finished_at: '2026-08-13T12:00:00.000Z', status: 'ok', error: null } },

@@ -871,9 +871,9 @@ interface Row {
 function bankCardHead(account: AccountRow, balance: number | null, card: CardFace): string {
   const mark = card.brand ? BRAND_ICONS[card.brand] : undefined;
   return `<summary class="bankcard">
-                <span class="bankcard__brand" aria-hidden="true"><b>${esc(
+                <span class="bankcard__brand"><b>${esc(
                   card.wordmark,
-                )}</b>${mark ? `<svg viewBox="0 0 24 24"><path d="${mark.path}" /></svg>` : ''}</span>
+                )}</b>${mark ? `<svg aria-hidden="true" viewBox="0 0 24 24"><path d="${mark.path}" /></svg>` : ''}</span>
                 <span class="bankcard__label">Balance</span>
                 <span class="bankcard__figure num">${
                   balance === null ? '—' : moneyParts(balance)
@@ -1146,6 +1146,7 @@ export function dashboardBody(data: DashboardViewData): string {
       <div class="topbar__inner">
         <span class="topbar__brand">Finance</span>
         <span class="topbar__stamp ${trustworthy ? '' : 'topbar__stamp--stale'}" id="sync-stamp"
+              role="status" aria-live="polite"
               data-finished-at="${esc(data.lastSync?.finished_at ?? '')}"
               data-connected="${data.bankConnected && !data.disconnection ? '1' : ''}">${esc(syncLabel)}</span>
         <nav class="rail" aria-label="Settings">

@@ -61,6 +61,12 @@
         section.focus({ preventScroll: true });
       }
       summary.tabIndex = flattened ? -1 : 0;
+      // A flattened summary is a label. Without this, a screen reader still
+      // announces "button, expanded" for a control the pointer and keyboard
+      // were both told is not there - and AT activation was the one path
+      // that could still press it.
+      if (flattened) summary.setAttribute('role', 'presentation');
+      else summary.removeAttribute('role');
     }
   }
   fitRowsToWidth(wide);
@@ -124,14 +130,17 @@
 
   function offerRefresh(count) {
     if (!stamp) return;
-    stamp.textContent = 'Synced · ' + count + ' new — tap to update';
+    stamp.textContent = 'Synced · ' + count + ' new — update';
     stamp.classList.add('topbar__stamp--fresh');
     stamp.setAttribute('role', 'button');
     stamp.setAttribute('tabindex', '0');
     var go = function () { window.location.reload(); };
     stamp.addEventListener('click', go);
     stamp.addEventListener('keydown', function (event) {
-      if (event.key === 'Enter' || event.key === ' ') go();
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault(); // Space must not also scroll the page.
+        go();
+      }
     });
   }
 

@@ -2302,6 +2302,19 @@ details > .bankcard:hover {
 .topbar__stamp--fresh {
   color: var(--accent);
   cursor: pointer;
+  /* It just became a control: give it the control's hit area, the house
+     focus ring, and permission to wrap - the fresh text is 2.5x longer
+     than the stamp it replaces. */
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  white-space: normal;
+}
+
+.topbar__stamp--fresh:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 
 /* Focus anchors, not controls: the revealed list and a flattened section
