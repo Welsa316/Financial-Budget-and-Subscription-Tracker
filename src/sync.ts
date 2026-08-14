@@ -181,6 +181,10 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
     .run(startedAt, trigger).lastInsertRowid as number;
 
   let accountsSynced = 0;
+  // Rows that did not exist before this run. The name survives from when
+  // this counted every upsert; the client's reload decision and the "N new"
+  // offer both key off it, and counting untouched re-writes made the page
+  // reload itself on essentially every open.
   let transactionsUpserted = 0;
   let pendingSettled = 0;
   let warnings: string[] = [];
@@ -303,6 +307,7 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
          WHERE source = 'import' AND account_id = ? AND date = ? AND amount_cents = ? AND id != ?`,
       );
       const deleteRow = db.prepare('DELETE FROM transactions WHERE id = ?');
+      const rowExists = db.prepare('SELECT 1 FROM transactions WHERE id = ?');
       // OR IGNORE, deliberately: if the posted row already carries its own
       // manual override, the pending's override loses rather than replacing
       // a classification made by hand. The leftover row is deleted with the
@@ -336,6 +341,7 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
             deleteRow.run(duplicate.id);
           }
 
+          const isNew = !rowExists.get(id);
           upsert.run(
             id,
             account.id,
@@ -352,7 +358,7 @@ export async function runSync(trigger: SyncTrigger): Promise<SyncResult> {
             now,
             now,
           );
-          transactionsUpserted += 1;
+          if (isNew) transactionsUpserted += 1;
         }
       });
       writeBatch(fetched);

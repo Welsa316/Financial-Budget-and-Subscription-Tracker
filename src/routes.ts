@@ -167,13 +167,36 @@ router.post('/api/disconnect', (_req: Request, res: Response) => {
 
 // --- Sync -----------------------------------------------------------------
 
-router.post('/api/sync', (_req: Request, res: Response) => {
+/**
+ * The floor an automatic trigger cannot cross. The client keeps its own
+ * 30-minute politeness, but its brake is the device clock - a fast clock,
+ * or a bug in the staleness stamp, looped a sync per page focus. Fifteen
+ * minutes server-side bounds the damage regardless of client behaviour;
+ * the manual button stays exempt because a human pressing it is the
+ * override.
+ */
+const AUTO_SYNC_FLOOR_MS = 15 * 60 * 1000;
+
+export function autoSyncTooSoon(now: number): boolean {
+  const last = getDb()
+    .prepare(`SELECT started_at FROM sync_log ORDER BY started_at DESC LIMIT 1`)
+    .get() as { started_at: string } | undefined;
+  if (!last) return false;
+  const started = Date.parse(last.started_at);
+  return Number.isFinite(started) && now - started < AUTO_SYNC_FLOOR_MS;
+}
+
+router.post('/api/sync', (req: Request, res: Response) => {
   if (!isBankConnected()) {
     res.status(400).json({ error: 'No bank is connected.' });
     return;
   }
   if (isSyncRunning()) {
     res.status(202).json({ started: false, running: true });
+    return;
+  }
+  if (req.body?.trigger === 'auto' && autoSyncTooSoon(Date.now())) {
+    res.status(202).json({ started: false, running: false, reason: 'too-soon' });
     return;
   }
   void runSync('manual');

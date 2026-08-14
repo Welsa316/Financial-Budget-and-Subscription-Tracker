@@ -145,7 +145,12 @@
           return;
         }
         autoRunning = false;
-        if (!data.last || data.last.status === 'error') return; // quiet; banners own chronic failure
+        if (!data.last || data.last.status === 'error') {
+          // Quiet - the banners own chronic failure - but back off: without
+          // advancing the stamp, every tab focus re-fired a doomed sync.
+          if (stamp) stamp.dataset.finishedAt = new Date().toISOString();
+          return;
+        }
         if (stamp && data.last.finished_at) stamp.dataset.finishedAt = data.last.finished_at;
         var brought = data.last.transactions_upserted || 0;
         if (brought > 0) {
@@ -164,9 +169,25 @@
     var last = Date.parse(stamp.dataset.finishedAt || '');
     if (isFinite(last) && Date.now() - last < AUTO_STALE_MS) return;
     autoRunning = true;
-    fetch('/api/sync', { method: 'POST', credentials: 'same-origin' })
+    fetch('/api/sync', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ trigger: 'auto' }),
+    })
       .then(function (response) {
-        if (!response.ok) { autoRunning = false; return; }
+        if (!response.ok) { autoRunning = false; return null; }
+        return response.json();
+      })
+      .then(function (body) {
+        if (!body) return;
+        // The server said no (another sync just ran); stand down quietly
+        // and stop asking until the stamp actually goes stale again.
+        if (!body.started && body.reason === 'too-soon') {
+          autoRunning = false;
+          if (stamp) stamp.dataset.finishedAt = new Date().toISOString();
+          return;
+        }
         autoPoll(Date.now());
       })
       .catch(function () { autoRunning = false; });

@@ -732,3 +732,40 @@ describe('settling never replaces a manual classification', () => {
     assert.equal(orphaned.n, 0, 'no override row left pointing at a deleted transaction');
   });
 });
+
+describe('what counts as new', () => {
+  it('counts only rows that did not exist, so a quiet re-sync reports zero', async () => {
+    resetDb();
+    mock.state.accounts = [{ id: 'acc_1', name: 'Chase Total Checking', balance: '100.00' }];
+    mock.state.transactions = [
+      { id: 'a', account_id: 'acc_1', amount: '-10.00', posted: agoSec(2), description: 'CIRCLE K' },
+      { id: 'b', account_id: 'acc_1', amount: '-20.00', posted: agoSec(1), description: 'SONIC' },
+    ];
+    mock.state.errlist = [];
+    const first = await runSync('manual');
+    assert.equal(first.status, 'ok');
+    assert.equal(first.transactionsUpserted, 2, 'both rows are new the first time');
+
+    const second = await runSync('manual');
+    assert.equal(second.transactionsUpserted, 0, 'the same window re-fetched brings nothing new');
+  });
+});
+
+describe('the auto-sync floor', () => {
+  it('refuses an automatic trigger inside the floor and allows one outside it', async () => {
+    const { autoSyncTooSoon } = await import('../src/routes.js');
+    const db = getDb();
+    db.prepare('DELETE FROM sync_log').run();
+    assert.equal(autoSyncTooSoon(Date.now()), false, 'no history, no floor');
+
+    db.prepare(
+      `INSERT INTO sync_log (started_at, status, trigger) VALUES (?, 'ok', 'manual')`,
+    ).run(new Date(Date.now() - 5 * 60 * 1000).toISOString());
+    assert.equal(autoSyncTooSoon(Date.now()), true, 'five minutes ago is too soon');
+    assert.equal(
+      autoSyncTooSoon(Date.now() + 20 * 60 * 1000),
+      false,
+      'twenty minutes later is fine',
+    );
+  });
+});
