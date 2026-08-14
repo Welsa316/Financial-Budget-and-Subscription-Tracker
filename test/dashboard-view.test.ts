@@ -583,7 +583,7 @@ describe('the card face', () => {
   it('brands the card from config even when the account names no bank', () => {
     const brand = html().match(/<span class="bankcard__brand"[\s\S]*?<\/span>/)![0]!;
     assert.match(brand, /<b>CHASE<\/b>/, 'the wordmark comes from rules.json');
-    assert.match(brand, /<svg viewBox="0 0 24 24">/, 'and so does the octagon');
+    assert.match(brand, /<svg[^>]*viewBox="0 0 24 24">/, 'and so does the octagon');
   });
 
   it('prints the network and kind from config, and no card digits anywhere', () => {
