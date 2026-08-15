@@ -36,7 +36,14 @@ const WINDOW_DAYS = 90;
 /** First sync walks back a year in 90-day windows; four requests, well inside the daily quota. */
 const BACKFILL_WINDOWS = 4;
 /** Routine syncs only need enough range to cover settlement and late posting. */
-const INCREMENTAL_DAYS = 45;
+/**
+ * Kept clear of SimpleFIN's recommended 45-day maximum rather than sitting on
+ * it: the request spans this many days PLUS the day of headroom the exclusive
+ * end-date adds, and asking for exactly the limit tripped the provider's
+ * "exceeds recommended range" notice on every sync. Thirty days is far more
+ * history than an incremental catch-up needs.
+ */
+const INCREMENTAL_DAYS = 30;
 /** How far a pending charge may move when it settles. */
 const SETTLE_WINDOW_DAYS = 5;
 /**
@@ -112,19 +119,25 @@ async function fetchEverything(accessUrl: string, fullBackfill: boolean): Promis
   const now = Math.floor(Date.now() / 1000);
   const windows: Array<{ startDate: number; endDate?: number }> = [];
 
+  // end-date is exclusive, so the newest window reaches into tomorrow rather
+  // than stopping at "now" - that is what keeps today's pending activity in
+  // range whatever the timezone. What it must NOT do is omit end-date
+  // entirely: an open end reads as an unbounded range, which is why every
+  // production sync came back with "Requested date range exceeds recommended
+  // range of 45 days" and, worse, why an incremental fetch could be served a
+  // capped window that never reached the present.
+  const tomorrow = now + DAY_SECONDS;
+
   if (fullBackfill) {
     for (let index = 0; index < BACKFILL_WINDOWS; index++) {
       const end = now - index * WINDOW_DAYS * DAY_SECONDS;
       windows.push({
         startDate: end - WINDOW_DAYS * DAY_SECONDS,
-        // The newest window is left open-ended. end-date is exclusive, so
-        // pinning it to "now" drops anything timestamped later today — which
-        // is most of a day's pending activity, depending on the zone.
-        ...(index === 0 ? {} : { endDate: end }),
+        endDate: index === 0 ? tomorrow : end,
       });
     }
   } else {
-    windows.push({ startDate: now - INCREMENTAL_DAYS * DAY_SECONDS });
+    windows.push({ startDate: now - INCREMENTAL_DAYS * DAY_SECONDS, endDate: tomorrow });
   }
 
   const merged = new Map<string, SimpleFinAccount>();

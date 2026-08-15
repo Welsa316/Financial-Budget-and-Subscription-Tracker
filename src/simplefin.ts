@@ -278,6 +278,15 @@ export async function fetchAccounts(
  * HTTP 200 when one connection failed but others succeeded, so they must be
  * surfaced rather than treated as success.
  */
+/**
+ * Advisories SimpleFIN returns in errlist that are not faults: guidance about
+ * how the request was shaped, which nothing about the data being wrong. They
+ * were being surfaced as "Sync finished with warnings", which pinned the
+ * dashboard into distrusting its own numbers on every single sync and blocked
+ * the disconnection state from ever clearing.
+ */
+const ADVISORY = [/recommended range/i, /may be capped/i];
+
 export function collectErrors(set: AccountSet): string[] {
   const messages: string[] = [];
   for (const entry of set.errlist ?? []) {
@@ -287,7 +296,7 @@ export function collectErrors(set: AccountSet): string[] {
   for (const entry of set.errors ?? []) {
     if (typeof entry === 'string' && entry) messages.push(entry);
   }
-  return messages;
+  return messages.filter((message) => !ADVISORY.some((pattern) => pattern.test(message)));
 }
 
 /** Whether a bridge-reported error means the bank link itself needs repairing. */

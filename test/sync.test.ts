@@ -809,3 +809,48 @@ describe('unreadable credentials never fail silently', () => {
     assert.ok(getDisconnection(), 'the reconnect banner is raised');
   });
 });
+
+/**
+ * Production ran for days with every sync reporting new=0 while the balance
+ * kept updating. The incremental request omitted end-date entirely, so the
+ * provider saw an unbounded range, answered "Requested date range exceeds
+ * recommended range of 45 days" on every call, and the fetch could be served
+ * a window that never reached the present.
+ */
+describe('the fetch window is always bounded', () => {
+  it('sends both ends, spans under the recommended maximum, and reaches into tomorrow', async () => {
+    resetDb();
+    mock.state.accounts = [{ id: 'acc_1', name: 'Chase Total Checking', balance: '100.00' }];
+    mock.state.transactions = [
+      { id: 'a', account_id: 'acc_1', amount: '-10.00', posted: agoSec(1), description: 'CIRCLE K' },
+    ];
+    mock.state.errlist = [];
+    await runSync('manual'); // backfill: the database is empty
+    mock.requests.length = 0;
+
+    await runSync('manual'); // incremental: rows already exist
+    assert.ok(mock.requests.length > 0, 'a request was made');
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    for (const request of mock.requests) {
+      const start = Number(request.query['start-date']);
+      const end = Number(request.query['end-date']);
+      assert.ok(Number.isFinite(start), `start-date sent: ${JSON.stringify(request.query)}`);
+      assert.ok(Number.isFinite(end), `end-date sent: ${JSON.stringify(request.query)}`);
+      const days = (end - start) / 86_400;
+      assert.ok(days < 45, `span ${days.toFixed(1)}d must stay under the recommended 45`);
+      assert.ok(end > nowSeconds, 'the window reaches past now, so today stays in range');
+    }
+  });
+
+  it('does not let a range advisory make the app distrust its own data', async () => {
+    resetDb();
+    mock.state.errlist = [
+      { code: 'gen.api', msg: 'Requested date range exceeds recommended range of 45 days. In the future, this may be capped.' },
+    ];
+    const result = await runSync('manual');
+    assert.equal(result.status, 'ok');
+    assert.deepEqual(result.warnings, [], 'guidance about the request is not a fault');
+    mock.state.errlist = [];
+  });
+});
