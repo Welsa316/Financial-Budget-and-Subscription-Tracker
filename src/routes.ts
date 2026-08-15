@@ -31,6 +31,8 @@ import {
 import { canHide, canReorder, getLayout, reorder, saveLayout, type CardId } from './layout.js';
 import { buildDashboard, isSpendDays, type RecentSort, type SpendDays } from './dashboard.js';
 import { loadStatementRows, type IncomingRow } from './import.js';
+import { diagnosticsReport } from './diagnostics.js';
+import { toYmd } from './time.js';
 
 export const router = Router();
 
@@ -277,6 +279,15 @@ router.post('/api/import', (req: Request, res: Response) => {
   console.log(`[import] ${inserted} inserted, ${duplicates} already known, ${invalid} invalid`);
 
   res.json({ inserted, duplicates, invalid, accountId });
+});
+
+/**
+ * What the database actually holds, in plain text. Behind the same session
+ * auth as everything else, and strictly read-only - it exists so a sync
+ * complaint can be answered with evidence instead of another guess.
+ */
+router.get('/diagnostics', (_req: Request, res: Response) => {
+  res.type('text/plain; charset=utf-8').send(diagnosticsReport(toYmd()));
 });
 
 // --- Which cards the dashboard shows ---------------------------------------
